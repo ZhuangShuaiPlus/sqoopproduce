@@ -252,7 +252,7 @@ public class SqoopProducter {
             case "date" :
             case "datetime" :
             case "timestamp":
-                dataType = "string";
+                hiveDataType = "string";
                 break;
             case "mediumint":
                 hiveDataType = "int";
