@@ -76,12 +76,14 @@ public class SqoopProducter {
             }
 
             FieldInfo fieldInfo = new FieldInfo();
-            fieldInfo.fieldName = cluName;
-            fieldInfo.dataType = cluType;
-            fieldInfo.columnComment = columnComment;
+            fieldInfo.setFieldName(cluName);
+            fieldInfo.setDataType(cluType);
+            fieldInfo.setColumnComment(columnComment);
+//            fieldInfo.fieldName = cluName;
+//            fieldInfo.dataType = cluType;
+//            fieldInfo.columnComment = columnComment;
 
             fields.add(fieldInfo);
-
         }
 //        String[] split = previousTable.split("\\.");
 //        TableInfo tableInfo = new TableInfo(split[0], split[1], split[2], fields);
@@ -175,13 +177,17 @@ public class SqoopProducter {
         for (TableInfo tableInfo : allTabInfo) {
             StringBuilder sqoopTextBuilder = new StringBuilder();
             sqoopTextBuilder.append(
-                    "hive -e 'create database if not exists " + tableInfo.databaseName + "'; \n" +
-                            "drop table if exists " + tableInfo.tableName + "; \n" +
-                            "create external table " + tableInfo.tableName + "(  \n");
+
+                    "hive -e 'create database if not exists " + tableInfo.getDatabaseName() + "'; \n" +
+                            "hive -e 'drop table if exists " + tableInfo.getTableName() + "'; \n" +
+                            "hive -e 'create external table " + tableInfo.getTableName() + "(  \n");
+//                    "hive -e 'create database if not exists " + tableInfo.databaseName + "'; \n" +
+//                            "drop table if exists " + tableInfo.tableName + "; \n" +
+//                            "create external table " + tableInfo.tableName + "(  \n");
 
             for (FieldInfo fieldInfo : tableInfo.tableFields) {
                 sqoopTextBuilder.append(
-                        fieldInfo.fieldName + " " + fieldInfo.dataType + " COMMENT " + "\'" + fieldInfo.columnComment + "\' "
+                        fieldInfo.getFieldName() + " " + fieldInfo.getDataType() + " COMMENT " + "\'" + fieldInfo.getColumnComment() + "\' "
                 );
                 if (tableInfo.tableFields.getLast() != fieldInfo) {
                     sqoopTextBuilder.append(" ,\n");
@@ -189,11 +195,11 @@ public class SqoopProducter {
                     sqoopTextBuilder.append("\n)\n");
                 }
             }
+            sqoopTextBuilder.append("COMMENT '" + tableInfo.getTableComment() + "'\n");
             sqoopTextBuilder.append(
                     "PARTITIONED BY (`dt` string) \n"
-                            + "location '/warehouse/gmall/ods/" + tableInfo.tableName + "/';"
+                            + "location \"/warehouse/ods/" + tableInfo.getDatabaseName() +"/" + tableInfo.getTableName() + "/\"';"
             );
-
 
             out.write(sqoopTextBuilder.toString());
             out.write("\n\n\n");
@@ -237,6 +243,35 @@ public class SqoopProducter {
 //        }
 
         out.close();
+    }
+
+    static String fieldMap(String dataType){
+        String[] split = dataType.split("\\(");
+        String hiveDataType = null;
+        switch(split[0]){
+            case "date" :
+            case "datetime" :
+            case "timestamp":
+                dataType = "string";
+                break;
+            case "mediumint":
+                hiveDataType = "int";
+                break;
+            case "varchar":
+            case "text":
+            case "longtext":
+                hiveDataType = "string";
+                break;
+            case "bit":
+                hiveDataType = "boolean";
+                break;
+            case "json":
+                hiveDataType = "string";
+                break;
+            default :
+                hiveDataType = dataType;
+        }
+        return hiveDataType;
     }
 
 

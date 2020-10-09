@@ -7,9 +7,9 @@ import java.util.Objects;
  * @create 2020-10-09 18:36
  */
 public class FieldInfo {
-    String fieldName = null;
-    String dataType = null;
-    String columnComment = null;
+    private String fieldName = null;
+    private String dataType = null;
+    private String columnComment = null;
 
 
     public FieldInfo() {

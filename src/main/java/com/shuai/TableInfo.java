@@ -8,9 +8,9 @@ import java.util.Objects;
  * @create 2020-10-09 16:15
  */
 public class TableInfo {
-    String databaseName = null;
-    String tableName = null;
-    String tableComment = null;
+    private String databaseName = null;
+    private String tableName = null;
+    private String tableComment = null;
     LinkedList<FieldInfo> tableFields;
 
     public TableInfo() {
