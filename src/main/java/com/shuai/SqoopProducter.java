@@ -57,7 +57,7 @@ public class SqoopProducter {
             tblComment = rs.getString("tblComment");
 //            dbAndTable = dbName + "." + tabName;
 //            dbAndTable = dbName + "." + tabName + "." + tblComment;
-            dbAndTable = new TableInfo(dbName,tabName,tblComment);
+            dbAndTable = new TableInfo(dbName, tabName, tblComment);
 
 
             if (previousTable == null || !previousTable.equals(dbAndTable)) {
@@ -187,7 +187,7 @@ public class SqoopProducter {
 
             for (FieldInfo fieldInfo : tableInfo.tableFields) {
                 sqoopTextBuilder.append(
-                        fieldInfo.getFieldName() + " " + fieldInfo.getDataType() + " COMMENT " + "\'" + fieldInfo.getColumnComment() + "\' "
+                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
                 );
                 if (tableInfo.tableFields.getLast() != fieldInfo) {
                     sqoopTextBuilder.append(" ,\n");
@@ -195,10 +195,10 @@ public class SqoopProducter {
                     sqoopTextBuilder.append("\n)\n");
                 }
             }
-            sqoopTextBuilder.append("COMMENT '" + tableInfo.getTableComment() + "'\n");
+            sqoopTextBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
             sqoopTextBuilder.append(
                     "PARTITIONED BY (`dt` string) \n"
-                            + "location \"/warehouse/ods/" + tableInfo.getDatabaseName() +"/" + tableInfo.getTableName() + "/\"';"
+                            + "location \"/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\"';"
             );
 
             out.write(sqoopTextBuilder.toString());
@@ -245,14 +245,20 @@ public class SqoopProducter {
         out.close();
     }
 
-    static String fieldMap(String dataType){
+    static String fieldMap(String dataType) {
         String[] split = dataType.split("\\(");
         String hiveDataType = null;
-        switch(split[0]){
-            case "date" :
-            case "datetime" :
+        switch (split[0]) {
+            case "date":
+            case "datetime":
             case "timestamp":
                 hiveDataType = "string";
+                break;
+            case "tinyint":
+            case "smallint":
+            case "int":
+            case "bigint":
+                hiveDataType = split[0];
                 break;
             case "mediumint":
                 hiveDataType = "int";
@@ -268,7 +274,7 @@ public class SqoopProducter {
             case "json":
                 hiveDataType = "string";
                 break;
-            default :
+            default:
                 hiveDataType = dataType;
         }
         return hiveDataType;
