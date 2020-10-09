@@ -177,9 +177,7 @@ public class SqoopProducter {
                     "hive -e 'create database if not exists " + split[0] + "'; \n" +
                             "drop table if exists " + split[0] + "; \n" +
                             "create external table " + split[0] + "(  \n");
-            for (int i = 0; i < value.size(); i++) {
 
-            }
             for (FieldInfo fieldInfo : value) {
                 sqoopTextBuilder.append(
                         fieldInfo.fieldName + " " + fieldInfo.dataType + " COMMENT " + "\'" + fieldInfo.comnent+ "\' "
