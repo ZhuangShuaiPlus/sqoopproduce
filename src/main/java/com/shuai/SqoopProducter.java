@@ -94,7 +94,7 @@ public class SqoopProducter {
     }
 
 
-//    static void sqoopProducterFun(LinkedHashMap<String, LinkedList<FieldInfo>> allTabInfo) throws IOException {
+    //    static void sqoopProducterFun(LinkedHashMap<String, LinkedList<FieldInfo>> allTabInfo) throws IOException {
 //
 //        BufferedWriter out = new BufferedWriter(new FileWriter("sqoopTest.sh"));
 //        // write your code here
@@ -158,10 +158,13 @@ public class SqoopProducter {
 //
 //        out.close();
 //    }
+    static void mysqlToHdfs(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 
+
+    }
 
     //    static void sqoopProducterFun2(LinkedHashMap<String, LinkedList<FieldInfo>> allTabInfo) throws IOException {
-    static void sqoopProducterFun2(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+    static void hiveCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 
         BufferedWriter out = new BufferedWriter(new FileWriter("sqoopTest.sh"));
         // write your code here
@@ -294,6 +297,6 @@ public class SqoopProducter {
 //        System.out.println("文件创建成功！");
         //------------------------
         LinkedHashSet<TableInfo> allTabInfo = extractTabInfo();
-        sqoopProducterFun2(allTabInfo);
+        hiveCreateTable(allTabInfo);
     }
 }
