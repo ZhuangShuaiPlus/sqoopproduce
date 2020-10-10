@@ -25,8 +25,7 @@ public class SqoopProducter {
             "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
             "WHERE  a.TABLE_SCHEMA LIKE 'chi%' ;";
 
-    //    private static LinkedHashMap<String, LinkedList<FieldInfo>> extractTabInfo() throws SQLException {
-    private static LinkedHashSet<TableInfo> extractTabInfo() throws SQLException {
+    static LinkedHashSet<TableInfo> extractTabInfo() throws SQLException {
         //1.加载驱动程序
 //        Class.forName("com.mysql.jdbc.Driver");
         //2. 获得数据库连接
@@ -34,10 +33,7 @@ public class SqoopProducter {
         //3.操作数据库，实现增删改查
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql);
-        //如果有数据，rs.next()返回true
-//        String previousTable = null;
         TableInfo previousTable = null;
-//        LinkedHashMap<String, LinkedList<FieldInfo>> allTabInfo = new LinkedHashMap<String, LinkedList<FieldInfo>>();
         LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
         LinkedList<FieldInfo> fields = null;
         String dbName = null;
@@ -46,7 +42,6 @@ public class SqoopProducter {
         String cluType = null;
         String columnComment = null;
         String tblComment = null;
-//        String dbAndTable = null;
         TableInfo dbAndTable = null;
         while (rs.next()) {
             dbName = rs.getString("dbName");
@@ -55,21 +50,13 @@ public class SqoopProducter {
             cluType = rs.getString("cluType");
             columnComment = rs.getString("columnComment");
             tblComment = rs.getString("tblComment");
-//            dbAndTable = dbName + "." + tabName;
-//            dbAndTable = dbName + "." + tabName + "." + tblComment;
             dbAndTable = new TableInfo(dbName, tabName, tblComment);
 
 
             if (previousTable == null || !previousTable.equals(dbAndTable)) {
                 if (previousTable != null) {
-//                    String[] split = previousTable.split("\\.");
-//                    System.out.println(split[0]);
-//                    System.out.println(split[1]);
-//                    System.out.println(split[2]);
-//                    TableInfo tableInfo = new TableInfo(split[0], split[1], split[2], fields);
                     previousTable.setTableFields(fields);
                     allTabInfo.add(previousTable);
-//                    allTabInfo.put(previousTable, fields);
                 }
                 fields = new LinkedList<FieldInfo>();
                 previousTable = dbAndTable;
@@ -79,17 +66,10 @@ public class SqoopProducter {
             fieldInfo.setFieldName(cluName);
             fieldInfo.setDataType(cluType);
             fieldInfo.setColumnComment(columnComment);
-//            fieldInfo.fieldName = cluName;
-//            fieldInfo.dataType = cluType;
-//            fieldInfo.columnComment = columnComment;
-
             fields.add(fieldInfo);
         }
-//        String[] split = previousTable.split("\\.");
-//        TableInfo tableInfo = new TableInfo(split[0], split[1], split[2], fields);
         dbAndTable.setTableFields(fields);
         allTabInfo.add(dbAndTable);
-//        allTabInfo.put(dbAndTable, fields);
         return allTabInfo;
     }
 
@@ -159,15 +139,7 @@ public class SqoopProducter {
 //        out.close();
 //    }
     static void mysqlToHdfs(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
-
-
-    }
-
-    //    static void sqoopProducterFun2(LinkedHashMap<String, LinkedList<FieldInfo>> allTabInfo) throws IOException {
-    static void hiveCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
-
-        BufferedWriter out = new BufferedWriter(new FileWriter("sqoopTest.sh"));
-        // write your code here
+        BufferedWriter out = new BufferedWriter(new FileWriter("tidb_to_hdfs.sh"));
 
         out.write("#!/bin/bash\n\n" +
                 "if [ -n \"$1\" ] ;then\n" +
@@ -177,74 +149,90 @@ public class SqoopProducter {
                 "fi\n\n");
 
 
+        StringBuilder stringBuilder = new StringBuilder();
         for (TableInfo tableInfo : allTabInfo) {
-            StringBuilder sqoopTextBuilder = new StringBuilder();
-            sqoopTextBuilder.append(
+            stringBuilder.append(
+                    "sqoop import \\\n" +
+                            "--connect jdbc:mysql://172.28.30.28:3306/" + tableInfo.getDatabaseName() + " \\\n" +
+                            "--username zhengyajun \\\n" +
+                            "--password zhengyajun8899 \\\n" +
+                            "--table " + tableInfo.getTableName() + " \\\n" +
+                            "--target-dir /user/origin_data/db/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date" + " \\\n" +
+                            "--delete-target-dir \\\n" +
+                            "--fields-terminated-by '\\001' \\\n" +
+                            "--num-mappers 1 \\\n" +
+                            "--null-string '\\\\N' \\\n" +
+                            "--null-non-string '\\\\N' \n\n"
+            );
+        }
+
+        out.write(stringBuilder.toString());
+        out.write("\n\n\n");
+        out.close();
+    }
+
+    static void hiveCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+
+        BufferedWriter out = new BufferedWriter(new FileWriter("hive_create_table.sh"));
+
+//        out.write("#!/bin/bash\n\n" +
+//                "if [ -n \"$1\" ] ;then\n" +
+//                "    do_date=$1\n" +
+//                "else\n" +
+//                "    do_date=`date -d '-1 day' +%F`\n" +
+//                "fi\n\n");
+
+
+        for (TableInfo tableInfo : allTabInfo) {
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append(
 
                     "hive -e 'create database if not exists " + tableInfo.getDatabaseName() + "'; \n" +
-                            "hive -e 'drop table if exists " + tableInfo.getTableName() + "'; \n" +
-                            "hive -e 'create external table " + tableInfo.getTableName() + "(  \n");
-//                    "hive -e 'create database if not exists " + tableInfo.databaseName + "'; \n" +
-//                            "drop table if exists " + tableInfo.tableName + "; \n" +
-//                            "create external table " + tableInfo.tableName + "(  \n");
+                            "hive -e 'drop table if exists " + tableInfo.getDatabaseName()+"."+tableInfo.getTableName() + "'; \n" +
+                            "hive -e 'create external table " + tableInfo.getDatabaseName()+"."+tableInfo.getTableName() + "(  \n");
 
             for (FieldInfo fieldInfo : tableInfo.tableFields) {
-                sqoopTextBuilder.append(
+                stringBuilder.append(
                         "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
                 );
                 if (tableInfo.tableFields.getLast() != fieldInfo) {
-                    sqoopTextBuilder.append(" ,\n");
+                    stringBuilder.append(" ,\n");
                 } else {
-                    sqoopTextBuilder.append("\n)\n");
+                    stringBuilder.append("\n)\n");
                 }
             }
-            sqoopTextBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
-            sqoopTextBuilder.append(
-                    "PARTITIONED BY (`dt` string) \n"
-                            + "location \"/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\"';"
+            stringBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
+            stringBuilder.append(
+                    "PARTITIONED BY (`dt` string) \n" +
+                            "row format delimited fields terminated by \"\\001\" \n"
+                            + "location \"/user/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\"';"
             );
 
-            out.write(sqoopTextBuilder.toString());
+            out.write(stringBuilder.toString());
             out.write("\n\n\n");
         }
 
-//        for (Map.Entry<String, LinkedList<FieldInfo>> entry : allTabInfo.entrySet()) {
-//
-//            String key = entry.getKey();
-//            LinkedList<FieldInfo> value = entry.getValue();
-//            if (key == null) {
-//                System.out.println(entry);
-//                return;
-//            }
-//            String[] split = key.split("\\.");
-//
-//            //user permied？？
-//            StringBuilder sqoopTextBuilder = new StringBuilder();
-//            sqoopTextBuilder.append(
-//                    "hive -e 'create database if not exists " + split[0] + "'; \n" +
-//                            "drop table if exists " + split[0] + "; \n" +
-//                            "create external table " + split[0] + "(  \n");
-//
-//            for (FieldInfo fieldInfo : value) {
-//                sqoopTextBuilder.append(
-//                        fieldInfo.fieldName + " " + fieldInfo.dataType + " COMMENT " + "\'" + fieldInfo.columnComment + "\' "
-//                );
-//                if (value.getLast() != fieldInfo) {
-//                    sqoopTextBuilder.append(" ,\n");
-//                } else {
-//                    sqoopTextBuilder.append("\n)\n");
-//                }
-//            }
-//            sqoopTextBuilder.append(
-//                    "PARTITIONED BY (`dt` string) \n"
-//                            + "location '/warehouse/gmall/ods/" + split[1] + "/';"
-//            );
-//
-//
-//            out.write(sqoopTextBuilder.toString());
-//            out.write("\n\n\n");
-//        }
+        out.close();
+    }
 
+
+    static void hiveLoadData(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        BufferedWriter out = new BufferedWriter(new FileWriter("hdfs_to_ods_db.sh"));
+
+        out.write("#!/bin/bash\n\n" +
+                "if [ -n \"$1\" ] ;then\n" +
+                "    do_date=$1\n" +
+                "else\n" +
+                "    do_date=`date -d '-1 day' +%F`\n" +
+                "fi\n\n");
+
+        StringBuilder stringBuilder = new StringBuilder();
+        for (TableInfo tableInfo : allTabInfo) {
+            stringBuilder.append("hive -e \"load data inpath '/user/origin_data/db/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date'" + " OVERWRITE into table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + " partition(dt='$do_date')\"; \n");
+        }
+
+        out.write(stringBuilder.toString());
+        out.write("\n\n\n");
         out.close();
     }
 
@@ -298,5 +286,7 @@ public class SqoopProducter {
         //------------------------
         LinkedHashSet<TableInfo> allTabInfo = extractTabInfo();
         hiveCreateTable(allTabInfo);
+        mysqlToHdfs(allTabInfo);
+        hiveLoadData(allTabInfo);
     }
 }
