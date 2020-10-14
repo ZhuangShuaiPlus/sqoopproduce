@@ -8,7 +8,7 @@ import java.net.URLEncoder;
 import java.sql.*;
 import java.util.*;
 
-
+//shuai
 public class SqoopProducter {
 
     public static final String URL = "jdbc:mysql://172.28.30.28:3306/test";
