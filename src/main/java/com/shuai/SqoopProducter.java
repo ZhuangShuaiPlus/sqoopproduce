@@ -11,19 +11,27 @@ import java.util.*;
 //shuai
 public class SqoopProducter {
 
-    public static final String URL = "jdbc:mysql://172.28.30.28:3306/test";
-    public static final String USER = "zhengyajun";
-    public static final String PASSWORD = "zhengyajun8899";
+//    public static final String URL = "jdbc:mysql://172.28.30.28:3306";
+//    public static final String USER = "zhengyajun";
+//    public static final String PASSWORD = "zhengyajun8899";
 
 //    public static final String URL = "jdbc:mysql://hadoop102:3306/gmall";
 //    public static final String USER = "root";
 //    public static final String PASSWORD = "123456";
 
+
+    public static final String URL = "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/";
+    public static final String USER = "qa_alldata_ro";
+    public static final String PASSWORD = "kUM8qL1cubf0Xf7RI9AT";
+    public static final String PREFIX = "eng";
+
+
     public static String sql = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
             "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
             "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
             "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
-            "WHERE  a.TABLE_SCHEMA LIKE 'chi%' ;";
+//            "WHERE  a.TABLE_SCHEMA LIKE '" + PREFIX + "%' ;";
+            "WHERE  a.TABLE_SCHEMA = 'english_agent' ;";
 
     static LinkedHashSet<TableInfo> extractTabInfo() throws SQLException {
         //1.加载驱动程序
@@ -151,11 +159,17 @@ public class SqoopProducter {
 
         StringBuilder stringBuilder = new StringBuilder();
         for (TableInfo tableInfo : allTabInfo) {
+//            if (tableInfo.getDatabaseName() != "english_agent") {
+//                continue;
+//            }
             stringBuilder.append(
                     "sqoop import \\\n" +
-                            "--connect jdbc:mysql://172.28.30.28:3306/" + tableInfo.getDatabaseName() + " \\\n" +
-                            "--username zhengyajun \\\n" +
-                            "--password zhengyajun8899 \\\n" +
+//                            "--connect jdbc:mysql://172.28.30.28:3306/" + tableInfo.getDatabaseName() + " \\\n" +
+                            "--connect " + URL + tableInfo.getDatabaseName() + " \\\n" +
+//                            "--username zhengyajun \\\n" +
+                            "--username " + USER + " \\\n" +
+//                            "--password zhengyajun8899 \\\n" +
+                            "--password " + PASSWORD + " \\\n" +
                             "--table " + tableInfo.getTableName() + " \\\n" +
                             "--target-dir /user/origin_data/db/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date" + " \\\n" +
                             "--delete-target-dir \\\n" +
@@ -164,6 +178,16 @@ public class SqoopProducter {
                             "--null-string '\\\\N' \\\n" +
                             "--null-non-string '\\\\N' \n\n"
             );
+            //azkaban报错用
+            exceptionExit(stringBuilder,tableInfo);
+//            stringBuilder.append(
+//                    "result=$? \n" +
+//                            "echo \"result = $result\" \n" +
+//                            "if [ $result -ne 0 ] ; then \n" +
+//                            "echo \"sqoop error in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+//                            "exit $result\n" +
+//                            "fi\n\n"
+//            );
         }
 
         out.write(stringBuilder.toString());
@@ -186,10 +210,13 @@ public class SqoopProducter {
         for (TableInfo tableInfo : allTabInfo) {
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.append(
-
-                    "hive -e 'create database if not exists " + tableInfo.getDatabaseName() + "'; \n" +
-                            "hive -e 'drop table if exists " + tableInfo.getDatabaseName()+"."+tableInfo.getTableName() + "'; \n" +
-                            "hive -e 'create external table " + tableInfo.getDatabaseName()+"."+tableInfo.getTableName() + "(  \n");
+                    "hive -e 'create database if not exists " + tableInfo.getDatabaseName() + "'; \n\n");
+            exceptionExit(stringBuilder,tableInfo);
+            stringBuilder.append(
+                            "hive -e 'drop table if exists " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "'; \n\n");
+            exceptionExit(stringBuilder,tableInfo);
+            stringBuilder.append(
+                            "hive -e 'create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
 
             for (FieldInfo fieldInfo : tableInfo.tableFields) {
                 stringBuilder.append(
@@ -205,11 +232,21 @@ public class SqoopProducter {
             stringBuilder.append(
                     "PARTITIONED BY (`dt` string) \n" +
                             "row format delimited fields terminated by \"\\001\" \n"
-                            + "location \"/user/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\"';"
+                            + "location \"/user/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\"';\n\n"
             );
 
+            exceptionExit(stringBuilder,tableInfo);
+//            stringBuilder.append(
+//                    "result=$? \n" +
+//                            "echo \"result = $result\" \n" +
+//                            "if [ $result -ne 0 ] ; then \n" +
+//                            "echo \"sqoop error in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+//                            "exit $result\n" +
+//                            "fi\n\n"
+//            );
+
             out.write(stringBuilder.toString());
-            out.write("\n\n\n");
+            out.write("\n\n");
         }
 
         out.close();
@@ -229,6 +266,7 @@ public class SqoopProducter {
         StringBuilder stringBuilder = new StringBuilder();
         for (TableInfo tableInfo : allTabInfo) {
             stringBuilder.append("hive -e \"load data inpath '/user/origin_data/db/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date'" + " OVERWRITE into table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + " partition(dt='$do_date')\"; \n");
+            exceptionExit(stringBuilder,tableInfo);
         }
 
         out.write(stringBuilder.toString());
@@ -271,6 +309,16 @@ public class SqoopProducter {
         return hiveDataType;
     }
 
+    static void exceptionExit(StringBuilder stringBuilder,TableInfo tableInfo) {
+        stringBuilder.append(
+                "result=$? \n" +
+                        "echo \"result = $result\" \n" +
+                        "if [ $result -ne 0 ] ; then \n" +
+                        "echo \"sqoop error in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "exit $result\n" +
+                        "fi\n\n"
+        );
+    }
 
     public static void main(String[] args) throws IOException, SQLException {
 //        BufferedWriter out = new BufferedWriter(new FileWriter("sqoopTest.sh"));
