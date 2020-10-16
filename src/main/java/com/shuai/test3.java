@@ -1,5 +1,6 @@
 package com.shuai;
 
+import java.io.File;
 import java.util.LinkedHashMap;
 
 /**
@@ -29,8 +30,6 @@ public class test3 {
 //        tableInfo3.tableComment = "shuai";
 
 
-
-
 //        System.out.println(tableInfo.equals(tableInfo2));
 //        System.out.println(tableInfo.equals(tableInfo3));
 //        System.out.println(tableInfo2.equals(tableInfo3));
@@ -40,5 +39,11 @@ public class test3 {
 //        stringStringLinkedHashMap.put(tableInfo3,"aa");
 //
 //        System.out.println(stringStringLinkedHashMap.size());
+        String fileLocation = "./english_agent/";
+        System.out.println(fileLocation);
+        File f = new File(fileLocation);
+        if (!f.exists()) {
+            f.mkdirs();
+        }
     }
 }
