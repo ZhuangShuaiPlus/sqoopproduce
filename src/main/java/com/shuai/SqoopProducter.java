@@ -4,10 +4,9 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.net.URLDecoder;
-import java.net.URLEncoder;
 import java.sql.*;
-import java.util.*;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
 
 //shuai
 public class SqoopProducter {
@@ -376,6 +375,52 @@ public class SqoopProducter {
     }
 
 
+    static void hiveCreateTable3(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+
+        BufferedWriter out = new BufferedWriter(new FileWriter("hive_create_table.sh"));
+
+        for (TableInfo tableInfo : allTabInfo) {
+
+            StringBuilder stringBuilder = new StringBuilder();
+
+            stringBuilder.append("hive -e '");
+            stringBuilder.append(
+                    "create database if not exists " + tableInfo.getDatabaseName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "drop table if exists " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
+
+            for (FieldInfo fieldInfo : tableInfo.tableFields) {
+                stringBuilder.append(
+                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+                );
+                if (tableInfo.tableFields.getLast() != fieldInfo) {
+                    stringBuilder.append(" ,\n");
+                } else {
+                    stringBuilder.append("\n)\n");
+                }
+            }
+            stringBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
+            stringBuilder.append(
+                    "PARTITIONED BY (`dt` string) \n" +
+                            "row format delimited fields terminated by \"\\001\" \n"
+                            + "location \"/bigdata/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";';\n\n"
+            );
+
+
+            exceptionExitCreateTable(stringBuilder, tableInfo);
+            out.write(stringBuilder.toString());
+            out.write("\n\n");
+        }
+        out.write("';\n");
+
+        out.close();
+    }
+
+
     static void hiveLoadData(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
         BufferedWriter out = new BufferedWriter(new FileWriter("hdfs_to_ods_db.sh"));
 
@@ -561,6 +606,7 @@ public class SqoopProducter {
         LinkedHashSet<TableInfo> allTabInfo = extractTabInfo();
 //        hiveCreateTable(allTabInfo);
         hiveCreateTable2(allTabInfo);
+//        hiveCreateTable3(allTabInfo);
 //        mysqlToHdfs(allTabInfo);
 //        hiveLoadData(allTabInfo);
         everyTableSqoopShell(allTabInfo);
