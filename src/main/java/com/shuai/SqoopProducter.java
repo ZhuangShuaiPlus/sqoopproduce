@@ -19,16 +19,18 @@ public class SqoopProducter {
 //    public static final String USER = "root";
 //    public static final String PASSWORD = "123456";
 
-    public static final String URL = "jdbc:mysql://10.16.40.154:3306/";
-    public static final String USER = "zhuangshuai";
-    public static final String PASSWORD = "0UtLSBLnYajUutJh";
+//    public static final String URL = "jdbc:mysql://10.16.40.154:3306/";
+//    public static final String USER = "zhuangshuai";
+//    public static final String PASSWORD = "0UtLSBLnYajUutJh";
 
 
-//    public static final String URL = "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/";
-//    public static final String USER = "qa_alldata_ro";
-//    public static final String PASSWORD = "kUM8qL1cubf0Xf7RI9AT";
+    public static final String URL = "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/";
+    public static final String USER = "qa_alldata_ro";
+    public static final String PASSWORD = "kUM8qL1cubf0Xf7RI9AT";
 
-    public static final String PREFIX = "ods";
+    //    public static final String PREFIX = "ods";
+    public static final String PREFIX = "eng";
+    public static final String LAYERPREFIX = "ods_";
     public static final String ODSSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_ods";
     public static final String SQOOPSHELLLOCATION = "/root/bin/azkabantest/oltp_to_hdfs";
 
@@ -89,12 +91,12 @@ public class SqoopProducter {
 
     static void everyTableOdsShell(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
         for (TableInfo tableInfo : allTabInfo) {
-            String dirLocation = "./hdfs_to_ods/" + tableInfo.getDatabaseName();
+            String dirLocation = "./hdfs_to_ods/" + LAYERPREFIX + tableInfo.getDatabaseName();
             File f = new File(dirLocation);
             if (!f.exists()) {
                 f.mkdirs();
             }
-            BufferedWriter out = new BufferedWriter(new FileWriter("./hdfs_to_ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh"));
+            BufferedWriter out = new BufferedWriter(new FileWriter("./hdfs_to_ods/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh"));
             StringBuilder stringBuilder = new StringBuilder();
             out.write("#!/bin/bash\n\n" +
                     "if [ -n \"$1\" ] ;then\n" +
@@ -117,7 +119,7 @@ public class SqoopProducter {
 //            );
 //            exceptionExitSqoop(stringBuilder, tableInfo);
 //            stringBuilder.append("\n");
-            stringBuilder.append("hive -e \"load data inpath '/bigdata/origin_data/db/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date'" + " OVERWRITE into table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + " partition(dt='$do_date')\"; \n\n");
+            stringBuilder.append("hive -e \"load data inpath '/bigdata/origin_data/db/ods/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date'" + " OVERWRITE into table " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + " partition(dt='$do_date')\"; \n\n");
             //azkaban报错用
             exceptionExitLoadData(stringBuilder, tableInfo);
             out.write(stringBuilder.toString());
@@ -132,12 +134,12 @@ public class SqoopProducter {
 
 
         for (TableInfo tableInfo : allTabInfo) {
-            String dirLocation = "./oltp_to_hdfs/" + tableInfo.getDatabaseName();
+            String dirLocation = "./oltp_to_hdfs/" + LAYERPREFIX + tableInfo.getDatabaseName();
             File f = new File(dirLocation);
             if (!f.exists()) {
                 f.mkdirs();
             }
-            BufferedWriter out = new BufferedWriter(new FileWriter("./oltp_to_hdfs/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh"));
+            BufferedWriter out = new BufferedWriter(new FileWriter("./oltp_to_hdfs/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh"));
             StringBuilder stringBuilder = new StringBuilder();
             out.write("#!/bin/bash\n\n" +
                     "if [ -n \"$1\" ] ;then\n" +
@@ -151,7 +153,7 @@ public class SqoopProducter {
                             "--username " + USER + " \\\n" +
                             "--password " + PASSWORD + " \\\n" +
                             "--table " + tableInfo.getTableName() + " \\\n" +
-                            "--target-dir /bigdata/origin_data/db/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date" + " \\\n" +
+                            "--target-dir /bigdata/origin_data/db/ods/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date" + " \\\n" +
                             "--delete-target-dir \\\n" +
                             "--fields-terminated-by '\\001' \\\n" +
                             "--num-mappers 1 \\\n" +
@@ -335,17 +337,17 @@ public class SqoopProducter {
 
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.append(
-                    "create database if not exists " + tableInfo.getDatabaseName() + ";" + "\n");
+                    "create database if not exists " + LAYERPREFIX + tableInfo.getDatabaseName() + ";" + "\n");
 //            exceptionExit(stringBuilder, tableInfo);
             stringBuilder.append(
-                    "drop table if exists " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + ";" + "\n");
+                    "drop table if exists " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + ";" + "\n");
 //            exceptionExit(stringBuilder, tableInfo);
             stringBuilder.append(
-                    "create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
+                    "create external table " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
 
             for (FieldInfo fieldInfo : tableInfo.tableFields) {
                 stringBuilder.append(
-                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fliterQuotation(fieldInfo.getColumnComment()) + "\" "
                 );
                 if (tableInfo.tableFields.getLast() != fieldInfo) {
                     stringBuilder.append(" ,\n");
@@ -357,7 +359,7 @@ public class SqoopProducter {
             stringBuilder.append(
                     "PARTITIONED BY (`dt` string) \n" +
                             "row format delimited fields terminated by \"\\001\" \n"
-                            + "location \"/bigdata/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";\n"
+                            + "location \"/bigdata/warehouse/ods/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";\n"
             );
 
 //            exceptionExitCreateTable(stringBuilder, tableInfo);
@@ -374,6 +376,14 @@ public class SqoopProducter {
         out.close();
     }
 
+    static String fliterQuotation(String s) throws IOException {
+//        if (s.contains("\'") || s.contains("\"")) {
+        s = s.replaceAll("\"", "");
+        s = s.replaceAll("\'", "");
+//            return s.replaceAll("\"", "");
+//        }
+        return s;
+    }
 
     static void hiveCreateTable3(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 
@@ -486,10 +496,10 @@ public class SqoopProducter {
                 "result=$? \n" +
                         "echo \"result = $result\" \n" +
                         "if [ $result -ne 0 ] ; then \n" +
-                        "    echo \"Hive load data: error in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "    echo \"Hive load data: error in " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
                         "    exit $result\n" +
                         "else\n" +
-                        "    echo \"Hive load data: successful in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "    echo \"Hive load data: successful in " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
                         "fi\n\n"
         );
     }
@@ -499,10 +509,10 @@ public class SqoopProducter {
                 "result=$? \n" +
                         "echo \"result = $result\" \n" +
                         "if [ $result -ne 0 ] ; then \n" +
-                        "    echo \"Hive create table: error in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "    echo \"Hive create table: error in " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
                         "    exit $result\n" +
                         "else\n" +
-                        "    echo \"Hive create table: successful in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "    echo \"Hive create table: successful in " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
                         "fi\n\n"
         );
     }
@@ -513,10 +523,10 @@ public class SqoopProducter {
                 "result=$? \n" +
                         "echo \"result = $result\" \n" +
                         "if [ $result -ne 0 ] ; then \n" +
-                        "    echo \"sqoop: error in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "    echo \"sqoop: error in " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
                         "    exit $result\n" +
                         "else\n" +
-                        "    echo \"sqoop: successful in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "    echo \"sqoop: successful in " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
                         "fi\n\n"
         );
     }
@@ -542,7 +552,7 @@ public class SqoopProducter {
             stringBuilder.append("  - name: sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
                     "    type: command\n" +
                     "    config:\n" +
-                    "      command: sh " + SQOOPSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+                    "      command: sh " + SQOOPSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
 
 
             stringBuilder.append("  - name: ods." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
@@ -550,7 +560,7 @@ public class SqoopProducter {
                     "    dependsOn:\n" +
                     "      - " + "sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
                     "    config:\n" +
-                    "      command: sh " + ODSSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+                    "      command: sh " + ODSSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
         }
 
 //        for (TableInfo tableInfo : allTabInfo) {
@@ -603,6 +613,8 @@ public class SqoopProducter {
 //        out.close();
 //        System.out.println("文件创建成功！");
         //------------------------
+
+//        System.out.println(fliterQuotation("'aaba':\"2232\"'"));
         LinkedHashSet<TableInfo> allTabInfo = extractTabInfo();
 //        hiveCreateTable(allTabInfo);
         hiveCreateTable2(allTabInfo);
