@@ -11,7 +11,7 @@ public class TableInfo {
     private String databaseName = null;
     private String tableName = null;
     private String tableComment = null;
-    LinkedList<FieldInfo> tableFields;
+    private LinkedList<FieldInfo> tableFields;
 
     public TableInfo() {
     }
