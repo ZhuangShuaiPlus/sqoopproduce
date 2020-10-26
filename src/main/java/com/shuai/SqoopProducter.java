@@ -5,8 +5,10 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.sql.*;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
+import java.util.Set;
 
 //shuai
 public class SqoopProducter {
@@ -34,6 +36,8 @@ public class SqoopProducter {
     public static final String ODSSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_ods";
     public static final String SQOOPSHELLLOCATION = "/root/bin/azkabantest/oltp_to_hdfs";
 
+    public static final HashSet<String> INCREMENTTABLE = new HashSet<String>();
+
 
     public static String sql = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
             "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
@@ -41,6 +45,7 @@ public class SqoopProducter {
             "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
             "WHERE  a.TABLE_SCHEMA LIKE '" + PREFIX + "%' ;";
 //            "WHERE  a.TABLE_SCHEMA = 'english_agent' ;";
+
 
     static LinkedHashSet<TableInfo> extractTabInfo() throws SQLException {
         //1.加载驱动程序
@@ -152,7 +157,8 @@ public class SqoopProducter {
                             "--connect " + URL + tableInfo.getDatabaseName() + " \\\n" +
                             "--username " + USER + " \\\n" +
                             "--password " + PASSWORD + " \\\n" +
-                            "--table " + tableInfo.getTableName() + " \\\n" +
+                            odsSyncStrategy(tableInfo) +
+//                            "--table " + tableInfo.getTableName() + " \\\n" +
                             "--target-dir /bigdata/origin_data/db/ods/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date" + " \\\n" +
                             "--delete-target-dir \\\n" +
                             "--fields-terminated-by '\\001' \\\n" +
@@ -170,6 +176,33 @@ public class SqoopProducter {
             out.close();
         }
 
+    }
+
+
+    private static String odsSyncStrategy(TableInfo tableInfo) {
+        if (!INCREMENTTABLE.contains(tableInfo.getDatabaseName() + "." + tableInfo.getTableName())) {
+            return "--table " + tableInfo.getTableName() + " \\\n";
+        } else {
+            StringBuilder stringBuilder = new StringBuilder();
+            LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+            stringBuilder.append("--query \"select\n");
+            int size = tableFields.size();
+            for (FieldInfo fieldInfo : tableFields) {
+                size--;
+                stringBuilder.append(fieldInfo.getFieldName());
+                //比计数慢，还是快
+//                if(tableFields.getLast().equals(fieldInfo)){
+                if (size != 0) {
+                    stringBuilder.append(",");
+                }
+                stringBuilder.append("\n");
+            }
+            stringBuilder.append("from " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n"
+                    + "where date_format(createTime,'%Y-%m-%d') = \'$do_date\'\n"
+                    + "and \\$CONDITIONS\" \\\n"
+            );
+            return stringBuilder.toString();
+        }
     }
 
     //    static void sqoopProducterFun(LinkedHashMap<String, LinkedList<FieldInfo>> allTabInfo) throws IOException {
@@ -300,11 +333,11 @@ public class SqoopProducter {
             stringBuilder.append(
                     "create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
 
-            for (FieldInfo fieldInfo : tableInfo.tableFields) {
+            for (FieldInfo fieldInfo : tableInfo.getTableFields()) {
                 stringBuilder.append(
                         "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
                 );
-                if (tableInfo.tableFields.getLast() != fieldInfo) {
+                if (tableInfo.getTableFields().getLast() != fieldInfo) {
                     stringBuilder.append(" ,\n");
                 } else {
                     stringBuilder.append("\n)\n");
@@ -345,11 +378,11 @@ public class SqoopProducter {
             stringBuilder.append(
                     "create external table " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
 
-            for (FieldInfo fieldInfo : tableInfo.tableFields) {
+            for (FieldInfo fieldInfo : tableInfo.getTableFields()) {
                 stringBuilder.append(
                         "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fliterQuotation(fieldInfo.getColumnComment()) + "\" "
                 );
-                if (tableInfo.tableFields.getLast() != fieldInfo) {
+                if (tableInfo.getTableFields().getLast() != fieldInfo) {
                     stringBuilder.append(" ,\n");
                 } else {
                     stringBuilder.append("\n)\n");
@@ -403,11 +436,11 @@ public class SqoopProducter {
             stringBuilder.append(
                     "create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
 
-            for (FieldInfo fieldInfo : tableInfo.tableFields) {
+            for (FieldInfo fieldInfo : tableInfo.getTableFields()) {
                 stringBuilder.append(
                         "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
                 );
-                if (tableInfo.tableFields.getLast() != fieldInfo) {
+                if (tableInfo.getTableFields().getLast() != fieldInfo) {
                     stringBuilder.append(" ,\n");
                 } else {
                     stringBuilder.append("\n)\n");
@@ -419,7 +452,6 @@ public class SqoopProducter {
                             "row format delimited fields terminated by \"\\001\" \n"
                             + "location \"/bigdata/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";';\n\n"
             );
-
 
             exceptionExitCreateTable(stringBuilder, tableInfo);
             out.write(stringBuilder.toString());
@@ -616,6 +648,86 @@ public class SqoopProducter {
 
 //        System.out.println(fliterQuotation("'aaba':\"2232\"'"));
         LinkedHashSet<TableInfo> allTabInfo = extractTabInfo();
+//        INCREMENTTABLE.add("ods_english_game.ods_gm_player_property_change");
+//        INCREMENTTABLE.add("ods_english_read.ods_rd_day_total_read");
+//        INCREMENTTABLE.add("ods_chinese_power_value.ods_word_study_stat");
+//        INCREMENTTABLE.add("ods_english_ebook.ods_ek_student_first_ebook");
+//        INCREMENTTABLE.add("ods_english_read.ods_rd_day_read");
+//        INCREMENTTABLE.add("ods_english_video.ods_hs_speak_student_answer");
+//        INCREMENTTABLE.add("ods_chinese_article.ods_article_sentence_info");
+//        INCREMENTTABLE.add("ods_english_read.ods_rd_through_book");
+//        INCREMENTTABLE.add("ods_english_parent.ods_pt_heart_talk");
+//        INCREMENTTABLE.add("ods_english_read.ods_rd_student_interrupt");
+//        INCREMENTTABLE.add("ods_english_gold.ods_gd_gold_bill");
+//        INCREMENTTABLE.add("ods_english_game.ods_gm_player_task");
+//        INCREMENTTABLE.add("ods_english_video.ods_vd_play_film_log");
+//        INCREMENTTABLE.add("ods_english_oral.ods_ol_day_oral");
+//        INCREMENTTABLE.add("ods_chinese_article.ods_read_article_info");
+//        INCREMENTTABLE.add("ods_chinese_article.ods_read_article_log");
+//        INCREMENTTABLE.add("ods_english_oral.ods_ol_day_oral_bak");
+//        INCREMENTTABLE.add("ods_english_parent.ods_pt_read_activity_sign_in");
+//        INCREMENTTABLE.add("ods_english_student.ods_st_student_view");
+//        INCREMENTTABLE.add("ods_english_ebook.ods_ek_student_ebook");
+//        INCREMENTTABLE.add("ods_english_oral.ods_ol_student_review");
+//        INCREMENTTABLE.add("ods_english_student.ods_st_student_report");
+//        INCREMENTTABLE.add("ods_english_oral.ods_ol_student_review_bak");
+//        INCREMENTTABLE.add("ods_english_parent.ods_pt_upload_sign_pic");
+//        INCREMENTTABLE.add("ods_chinese_power_value.ods_user_word_study_stat");
+//        INCREMENTTABLE.add("ods_chinese_introduction.ods_search_history");
+//        INCREMENTTABLE.add("ods_english_gold.ods_gd_gold_reward_detail");
+//        INCREMENTTABLE.add("ods_point.point_etp_race_login_sign");
+//        INCREMENTTABLE.add("ods_english_teacher.ods_tc_student_task");
+//        INCREMENTTABLE.add("ods_kk_marketer.ods_thirdpartymsglog");
+//        INCREMENTTABLE.add("ods_chinese_introduction.ods_browsing_history_log");
+//        INCREMENTTABLE.add("ods_chinese_introduction.ods_user_behavior_log");
+//        INCREMENTTABLE.add("ods_english_video.ods_vd_play_film");
+//        INCREMENTTABLE.add("ods_english_read.ods_rd_student_answer_exercise");
+//        INCREMENTTABLE.add("ods_chinese_user_data.ods_rank_user_source_increase_log");
+//        INCREMENTTABLE.add("ods_english_read.ods_rd_student_favorite_book");
+//        INCREMENTTABLE.add("ods_chinese_power_value.ods_day_study_data_stat");
+//        INCREMENTTABLE.add("ods_chinese_power_value.ods_study_milestone_evaluate_stat");
+//        INCREMENTTABLE.add("ods_english_parent.ods_pt_parent_task");
+
+
+        INCREMENTTABLE.add("english_game.gm_player_property_change");
+        INCREMENTTABLE.add("english_read.rd_day_total_read");
+        INCREMENTTABLE.add("chinese_power_value.word_study_stat");
+        INCREMENTTABLE.add("english_ebook.ek_student_first_ebook");
+        INCREMENTTABLE.add("english_read.rd_day_read");
+        INCREMENTTABLE.add("english_video.hs_speak_student_answer");
+        INCREMENTTABLE.add("chinese_article.article_sentence_info");
+        INCREMENTTABLE.add("english_read.rd_through_book");
+        INCREMENTTABLE.add("english_parent.pt_heart_talk");
+        INCREMENTTABLE.add("english_read.rd_student_interrupt");
+        INCREMENTTABLE.add("english_gold.gd_gold_bill");
+        INCREMENTTABLE.add("english_game.gm_player_task");
+        INCREMENTTABLE.add("english_video.vd_play_film_log");
+        INCREMENTTABLE.add("english_oral.ol_day_oral");
+        INCREMENTTABLE.add("chinese_article.read_article_info");
+        INCREMENTTABLE.add("chinese_article.read_article_log");
+        INCREMENTTABLE.add("english_oral.ol_day_oral_bak");
+        INCREMENTTABLE.add("english_parent.pt_read_activity_sign_in");
+        INCREMENTTABLE.add("english_student.st_student_view");
+        INCREMENTTABLE.add("english_ebook.ek_student_ebook");
+        INCREMENTTABLE.add("english_oral.ol_student_review");
+        INCREMENTTABLE.add("english_student.st_student_report");
+        INCREMENTTABLE.add("english_oral.ol_student_review_bak");
+        INCREMENTTABLE.add("english_parent.pt_upload_sign_pic");
+        INCREMENTTABLE.add("chinese_power_value.user_word_study_stat");
+        INCREMENTTABLE.add("chinese_introduction.search_history");
+        INCREMENTTABLE.add("english_gold.gd_gold_reward_detail");
+        INCREMENTTABLE.add("point.point_etp_race_login_sign");
+        INCREMENTTABLE.add("english_teacher.tc_student_task");
+        INCREMENTTABLE.add("kk_marketer.thirdpartymsglog");
+        INCREMENTTABLE.add("chinese_introduction.browsing_history_log");
+        INCREMENTTABLE.add("chinese_introduction.user_behavior_log");
+        INCREMENTTABLE.add("english_video.vd_play_film");
+        INCREMENTTABLE.add("english_read.rd_student_answer_exercise");
+        INCREMENTTABLE.add("chinese_user_data.rank_user_source_increase_log");
+        INCREMENTTABLE.add("english_read.rd_student_favorite_book");
+        INCREMENTTABLE.add("chinese_power_value.day_study_data_stat");
+        INCREMENTTABLE.add("chinese_power_value.study_milestone_evaluate_stat");
+        INCREMENTTABLE.add("english_parent.pt_parent_task");
 //        hiveCreateTable(allTabInfo);
         hiveCreateTable2(allTabInfo);
 //        hiveCreateTable3(allTabInfo);
