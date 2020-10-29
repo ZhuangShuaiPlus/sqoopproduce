@@ -13,27 +13,32 @@ import java.util.Set;
 //shuai
 public class SqoopProducter {
 
+//测试Tidb
 //    public static final String URL = "jdbc:mysql://172.28.30.28:3306";
 //    public static final String USER = "zhengyajun";
 //    public static final String PASSWORD = "zhengyajun8899";
 
+//自己电脑
 //    public static final String URL = "jdbc:mysql://hadoop102:3306/gmall";
 //    public static final String USER = "root";
 //    public static final String PASSWORD = "123456";
 
-//    public static final String URL = "jdbc:mysql://10.16.40.154:3306/";
-//    public static final String USER = "zhuangshuai";
-//    public static final String PASSWORD = "0UtLSBLnYajUutJh";
+    //生产Tidb
+    public static final String URL = "jdbc:mysql://10.16.40.154:4000/";
+    public static final String USER = "zhuangshuai";
+    public static final String PASSWORD = "0UtLSBLnYajUutJh";
 
-
-    public static final String URL = "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/";
-    public static final String USER = "qa_alldata_ro";
-    public static final String PASSWORD = "kUM8qL1cubf0Xf7RI9AT";
+//测试drds
+//    public static final String URL = "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/";
+//    public static final String USER = "qa_alldata_ro";
+//    public static final String PASSWORD = "kUM8qL1cubf0Xf7RI9AT";
 
     //    public static final String PREFIX = "ods";
     public static final String PREFIX = "eng";
-    public static final String LAYERPREFIX = "ods_";
+//    public static final String LAYERPREFIX = "ods_";
+    public static final String LAYERPREFIX = "";
     public static final String ODSSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_ods";
+    public static final String DWDSHELLLOCATION = "/root/bin/azkabantest/ods_to_dwd";
     public static final String SQOOPSHELLLOCATION = "/root/bin/azkabantest/oltp_to_hdfs";
 
     public static final HashSet<String> INCREMENTTABLE = new HashSet<String>();
@@ -43,7 +48,8 @@ public class SqoopProducter {
             "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
             "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
             "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
-            "WHERE  a.TABLE_SCHEMA LIKE '" + PREFIX + "%' ;";
+//            "WHERE  a.TABLE_SCHEMA LIKE '" + PREFIX + "%' ;";
+            "WHERE  a.TABLE_SCHEMA LIKE '" + "dwd" + "%' ;";
 //            "WHERE  a.TABLE_SCHEMA = 'english_agent' ;";
 
 
@@ -462,6 +468,66 @@ public class SqoopProducter {
         out.close();
     }
 
+    static void dwdCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        BufferedWriter out = new BufferedWriter(new FileWriter("dwd_create_table.sh"));
+        for (TableInfo tableInfo : allTabInfo) {
+
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append("hive -e '");
+            stringBuilder.append(
+                    "create database if not exists " + tableInfo.getDatabaseName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "drop table if exists " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
+
+            boolean isPartitionTable = false;
+            int size = tableInfo.getTableFields().size();
+            LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+            for (int i = 0; i < size; i++) {
+                FieldInfo fieldInfo = tableFields.get(i);
+                if (i + 2 == size && "date_value".equals(tableFields.get(i + 1).getFieldName())) {
+                    stringBuilder.append(
+                            "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+                    );
+                    stringBuilder.append("\n)\n");
+                    isPartitionTable = true;
+                    break;
+                }
+                if ("date_value".equals(fieldInfo.getFieldName())) {
+                    isPartitionTable = true;
+                    continue;
+                }
+                stringBuilder.append(
+                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+                );
+                //最后一个不加逗号
+                if (tableInfo.getTableFields().getLast() != fieldInfo) {
+                    stringBuilder.append(" ,\n");
+                } else {
+                    stringBuilder.append("\n)\n");
+                }
+            }
+            stringBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
+            //是分区表则加入分区
+            if (isPartitionTable) {
+                stringBuilder.append("PARTITIONED BY (`dt` string) \n");
+            }
+            stringBuilder.append(
+//                    "PARTITIONED BY (`dt` string) \n" +
+                    "row format delimited fields terminated by \"\\001\" \n"
+                            + "location \"/bigdata/warehouse/dwd/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";");
+            stringBuilder.append("';\n\n");
+            exceptionExitCreateTable(stringBuilder,tableInfo);
+            out.write(stringBuilder.toString());
+            out.write("\n\n");
+        }
+//        out.write("';\n");
+        out.close();
+    }
+
 
     static void hiveLoadData(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
         BufferedWriter out = new BufferedWriter(new FileWriter("hdfs_to_ods_db.sh"));
@@ -609,6 +675,46 @@ public class SqoopProducter {
         out.close();
     }
 
+    static void azkabanDwdFlow(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        //创建所需目录
+        String dirLocation = "./dwd-azkaban-schedule/";
+        File f = new File(dirLocation);
+        if (!f.exists()) {
+            f.mkdirs();
+        }
+        //生成azkaban的执行工程
+        BufferedWriter out2 = new BufferedWriter(new FileWriter(dirLocation + "dwd_schedule.project"));
+        out2.write("azkaban-flow-version: 2.0");
+
+        out2.close();
+        BufferedWriter out = new BufferedWriter(new FileWriter(dirLocation + "dwd_schedule.flow"));
+        out.write("nodes:\n");
+
+        StringBuilder stringBuilder = new StringBuilder();
+        for (TableInfo tableInfo : allTabInfo) {
+
+            stringBuilder.append("  - name: dwd." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    type: command\n" +
+                    "    dependsOn:\n" +
+                    "      - " + "ods." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    config:\n" +
+                    "      command: sh " + DWDSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+        }
+
+//        for (TableInfo tableInfo : allTabInfo) {
+//            stringBuilder.append("  - name: sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+//                    "    type: command\n" +
+//                    "    dependsOn:\n" +
+//                    "      - " + "sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+//                    "    config:\n" +
+//                    "      command: sh " + ODSSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+//        }
+
+        out.write(stringBuilder.toString());
+        out.write("\n\n\n");
+        out.close();
+    }
+
 //    static void createAzkabanShellExecDir(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 //
 //
@@ -729,12 +835,16 @@ public class SqoopProducter {
         INCREMENTTABLE.add("chinese_power_value.study_milestone_evaluate_stat");
         INCREMENTTABLE.add("english_parent.pt_parent_task");
 //        hiveCreateTable(allTabInfo);
-        hiveCreateTable2(allTabInfo);
 //        hiveCreateTable3(allTabInfo);
 //        mysqlToHdfs(allTabInfo);
 //        hiveLoadData(allTabInfo);
-        everyTableSqoopShell(allTabInfo);
-        everyTableOdsShell(allTabInfo);
-        azkabanOdsFlow(allTabInfo);
+        //ods层
+//        hiveCreateTable2(allTabInfo);
+//        everyTableSqoopShell(allTabInfo);
+//        everyTableOdsShell(allTabInfo);
+//        azkabanOdsFlow(allTabInfo);
+        //dwd
+        dwdCreateTable(allTabInfo);
+        azkabanDwdFlow(allTabInfo);
     }
 }
