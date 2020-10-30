@@ -5,13 +5,11 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.sql.*;
-import java.util.HashSet;
-import java.util.LinkedHashSet;
-import java.util.LinkedList;
-import java.util.Set;
+import java.util.*;
 
 //shuai
 public class SqoopProducter {
+
 
 //测试Tidb
 //    public static final String URL = "jdbc:mysql://172.28.30.28:3306";
@@ -28,14 +26,19 @@ public class SqoopProducter {
     public static final String USER = "zhuangshuai";
     public static final String PASSWORD = "0UtLSBLnYajUutJh";
 
-//测试drds
+    //测试drds--kk
+//    public static final String URL = "jdbc:mysql://rm-2ze02m3a090ke3zub.mysql.rds.aliyuncs.com:3306/";
+//    public static final String USER = "agent_rw";
+//    public static final String PASSWORD = "ezuYvaJppO3kPmOgqqPY";
+
+//测试drds--english
 //    public static final String URL = "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/";
 //    public static final String USER = "qa_alldata_ro";
 //    public static final String PASSWORD = "kUM8qL1cubf0Xf7RI9AT";
 
     //    public static final String PREFIX = "ods";
     public static final String PREFIX = "eng";
-//    public static final String LAYERPREFIX = "ods_";
+    //    public static final String LAYERPREFIX = "ods_";
     public static final String LAYERPREFIX = "";
     public static final String ODSSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_ods";
     public static final String DWDSHELLLOCATION = "/root/bin/azkabantest/ods_to_dwd";
@@ -44,19 +47,128 @@ public class SqoopProducter {
     public static final HashSet<String> INCREMENTTABLE = new HashSet<String>();
 
 
-    public static String sql = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+    public static String SQL = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
             "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
             "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
             "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
 //            "WHERE  a.TABLE_SCHEMA LIKE '" + PREFIX + "%' ;";
-            "WHERE  a.TABLE_SCHEMA LIKE '" + "dwd" + "%' ;";
+//dwd层
+//            "WHERE  a.TABLE_SCHEMA LIKE '" + "dwd" + "%' ;";
 //            "WHERE  a.TABLE_SCHEMA = 'english_agent' ;";
+            //kk的表
+            "WHERE  a.TABLE_SCHEMA in (" +
+            "ientrepreneurship_dev" + ");";
 
 
-    static LinkedHashSet<TableInfo> extractTabInfo() throws SQLException {
+    static LinkedHashSet<TableInfo> extractAllTabInfo() throws SQLException {
+        LinkedList<DataBaseInfo> datalist = new LinkedList<DataBaseInfo>();
+
+        String sqleng = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "eng" + "%' ;";
+
+        String sqlkk = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "kk" + "%' \n" +
+                "or " + "a.TABLE_SCHEMA = 'ientrepreneurship_dev' ;";
+
+        String sqlch = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "chinese" + "%' ;";
+
+
+        //英语测试
+        datalist.add(new DataBaseInfo(
+                "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/",
+                "qa_alldata_ro",
+                "kUM8qL1cubf0Xf7RI9AT",
+                sqleng
+        ));
+
+        //KK测试
+        datalist.add(new DataBaseInfo(
+                "jdbc:mysql://rm-2ze02m3a090ke3zub.mysql.rds.aliyuncs.com:3306/",
+                "agent_rw",
+                "ezuYvaJppO3kPmOgqqPY",
+                sqlkk
+        ));
+
+        //语文测试
+        datalist.add(new DataBaseInfo(
+                "jdbc:mysql://172.28.30.87:3306/",
+                "qa_new_chinese",
+                "Aa123456",
+                sqlch
+        ));
+
+
+        LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
+
+        for (DataBaseInfo dataBaseInfo : datalist) {
+            LinkedHashSet<TableInfo> tableInfos = extractTabInfo2(dataBaseInfo, dataBaseInfo.getUrl());
+            allTabInfo.addAll(tableInfos);
+        }
+        return allTabInfo;
+    }
+
+
+    static LinkedHashSet<TableInfo> extractTabInfo(String url, String user, String password, String sql) throws SQLException {
         //1.加载驱动程序
 //        Class.forName("com.mysql.jdbc.Driver");
         Connection conn = DriverManager.getConnection(URL, USER, PASSWORD);
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql);
+        TableInfo previousTable = null;
+        LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
+        LinkedList<FieldInfo> fields = null;
+        String dbName = null;
+        String tabName = null;
+        String cluName = null;
+        String cluType = null;
+        String columnComment = null;
+        String tblComment = null;
+        TableInfo dbAndTable = null;
+        while (rs.next()) {
+            dbName = rs.getString("dbName");
+            tabName = rs.getString("tabName");
+            cluName = rs.getString("cluName");
+            cluType = rs.getString("cluType");
+            columnComment = rs.getString("columnComment");
+            tblComment = rs.getString("tblComment");
+            dbAndTable = new TableInfo(dbName, tabName, tblComment);
+
+
+            if (previousTable == null || !previousTable.equals(dbAndTable)) {
+                if (previousTable != null) {
+                    previousTable.setTableFields(fields);
+                    allTabInfo.add(previousTable);
+                }
+                fields = new LinkedList<FieldInfo>();
+                previousTable = dbAndTable;
+            }
+
+            FieldInfo fieldInfo = new FieldInfo();
+            fieldInfo.setFieldName(cluName);
+            fieldInfo.setDataType(cluType);
+            fieldInfo.setColumnComment(columnComment);
+            fields.add(fieldInfo);
+        }
+        dbAndTable.setTableFields(fields);
+        allTabInfo.add(dbAndTable);
+        return allTabInfo;
+    }
+
+
+    static LinkedHashSet<TableInfo> extractTabInfo2(DataBaseInfo dataBaseInfo, String sql) throws SQLException {
+        //1.加载驱动程序
+//        Class.forName("com.mysql.jdbc.Driver");
+        Connection conn = DriverManager.getConnection(dataBaseInfo.getUrl(), dataBaseInfo.getUser(), dataBaseInfo.getPassword());
         Statement stmt = conn.createStatement();
         ResultSet rs = stmt.executeQuery(sql);
         TableInfo previousTable = null;
@@ -520,7 +632,7 @@ public class SqoopProducter {
                     "row format delimited fields terminated by \"\\001\" \n"
                             + "location \"/bigdata/warehouse/dwd/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";");
             stringBuilder.append("';\n\n");
-            exceptionExitCreateTable(stringBuilder,tableInfo);
+            exceptionExitCreateTable(stringBuilder, tableInfo);
             out.write(stringBuilder.toString());
             out.write("\n\n");
         }
@@ -715,6 +827,7 @@ public class SqoopProducter {
         out.close();
     }
 
+
 //    static void createAzkabanShellExecDir(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 //
 //
@@ -753,7 +866,9 @@ public class SqoopProducter {
         //------------------------
 
 //        System.out.println(fliterQuotation("'aaba':\"2232\"'"));
-        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo();
+//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo();
+//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo(URL, USER, PASSWORD, sql);
+
 //        INCREMENTTABLE.add("ods_english_game.ods_gm_player_property_change");
 //        INCREMENTTABLE.add("ods_english_read.ods_rd_day_total_read");
 //        INCREMENTTABLE.add("ods_chinese_power_value.ods_word_study_stat");
@@ -834,17 +949,21 @@ public class SqoopProducter {
         INCREMENTTABLE.add("chinese_power_value.day_study_data_stat");
         INCREMENTTABLE.add("chinese_power_value.study_milestone_evaluate_stat");
         INCREMENTTABLE.add("english_parent.pt_parent_task");
+
+        LinkedHashSet<TableInfo> allTabInfo = extractAllTabInfo();
 //        hiveCreateTable(allTabInfo);
 //        hiveCreateTable3(allTabInfo);
 //        mysqlToHdfs(allTabInfo);
 //        hiveLoadData(allTabInfo);
         //ods层
-//        hiveCreateTable2(allTabInfo);
-//        everyTableSqoopShell(allTabInfo);
-//        everyTableOdsShell(allTabInfo);
-//        azkabanOdsFlow(allTabInfo);
+        hiveCreateTable2(allTabInfo);
+        everyTableSqoopShell(allTabInfo);
+        everyTableOdsShell(allTabInfo);
+        azkabanOdsFlow(allTabInfo);
         //dwd
-        dwdCreateTable(allTabInfo);
-        azkabanDwdFlow(allTabInfo);
+//        dwdCreateTable(allTabInfo);
+//        azkabanDwdFlow(allTabInfo);
+
+
     }
 }
