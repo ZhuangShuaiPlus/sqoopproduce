@@ -29,14 +29,14 @@ public class TableInfo {
         this.tableFields = tableFields;
     }
 
+    //非默认生成的
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
         if (o == null || getClass() != o.getClass()) return false;
         TableInfo tableInfo = (TableInfo) o;
         return Objects.equals(databaseName, tableInfo.databaseName) &&
-                Objects.equals(tableName, tableInfo.tableName) &&
-                Objects.equals(tableComment, tableInfo.tableComment);
+                Objects.equals(tableName, tableInfo.tableName);
     }
 
     @Override

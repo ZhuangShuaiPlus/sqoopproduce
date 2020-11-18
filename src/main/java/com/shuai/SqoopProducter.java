@@ -43,19 +43,24 @@ public class SqoopProducter {
     public static final String ODSSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_ods";
     public static final String DIMSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_dim";
     public static final String DWDSHELLLOCATION = "/root/bin/azkabantest/ods_to_dwd";
+    public static final String DWMSHELLLOCATION = "/root/bin/azkabantest/dwd_to_dwm";
     public static final String SQOOPSHELLLOCATION = "/root/bin/azkabantest/oltp_to_hdfs";
     public static final String DIMOLTPSHELLLOCATION = "/root/bin/azkabantest/dim_to_hdfs";
+
+    //dws 的各层脚本
 
     //语文代理商-到tidb
     public static final String CHIAGENTSHELLLOCATION = "/root/bin/azkabantest/chiAgent_to_tidb";
 
     public static final HashSet<String> INCREMENTTABLE = new HashSet<String>();
 
+    public static final HashSet<String> DIMTRUNCATEANDDATAVALUE = new HashSet<String>();
+
 
     public static String SQL = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
             "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
             "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
-            "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
+            "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
 //            "WHERE  a.TABLE_SCHEMA LIKE '" + PREFIX + "%' ;";
 //dwd层
 //            "WHERE  a.TABLE_SCHEMA LIKE '" + "dwd" + "%' ;";
@@ -187,6 +192,7 @@ public class SqoopProducter {
     }
 
 
+    //与extractTabInfo的传参不同，一样
     static LinkedHashSet<TableInfo> extractTabInfo2(DataBaseInfo dataBaseInfo, String sql) throws SQLException {
         //1.加载驱动程序
 //        Class.forName("com.mysql.jdbc.Driver");
@@ -361,6 +367,49 @@ public class SqoopProducter {
     }
 
 
+    static void everyTableSqoopShell_SpecifiedField(LinkedHashSet<TableInfo> allTabInfo, DataBaseInfo dataBaseInfo) throws IOException {
+
+        for (TableInfo tableInfo : allTabInfo) {
+            String dirLocation = "./oltp_to_hdfs/" + LAYERPREFIX + standardization(tableInfo.getDatabaseName());
+            File f = new File(dirLocation);
+            if (!f.exists()) {
+                f.mkdirs();
+            }
+            BufferedWriter out = new BufferedWriter(new FileWriter("./oltp_to_hdfs/" + LAYERPREFIX + standardization(tableInfo.getDatabaseName()) + "/" + tableInfo.getTableName() + ".sh"));
+            StringBuilder stringBuilder = new StringBuilder();
+            out.write("#!/bin/bash\n\n" +
+                    "if [ -n \"$1\" ] ;then\n" +
+                    "    do_date=$1\n" +
+                    "else\n" +
+                    "    do_date=`date -d '-1 day' +%F`\n" +
+                    "fi\n\n");
+            stringBuilder.append(
+                    "sqoop import \\\n" +
+                            "--connect " + dataBaseInfo.getUrl() + tableInfo.getDatabaseName() + " \\\n" +
+                            "--username " + dataBaseInfo.getUser() + " \\\n" +
+                            "--password " + dataBaseInfo.getPassword() + " \\\n" +
+                            odsSyncStrategy_SpecifiedField(tableInfo) +
+//                            "--table " + tableInfo.getTableName() + " \\\n" +
+                            "--target-dir /bigdata/origin_data/db/ods/" + LAYERPREFIX + standardization(tableInfo.getDatabaseName()) + "/" + tableInfo.getTableName() + "/" + "$do_date" + " \\\n" +
+                            "--delete-target-dir \\\n" +
+                            "--fields-terminated-by '\\001' \\\n" +
+                            "--num-mappers 1 \\\n" +
+                            "--null-string '\\\\N' \\\n" +
+                            "--null-non-string '\\\\N' \n\n"
+            );
+            exceptionExitSqoop(stringBuilder, tableInfo);
+//            stringBuilder.append("\n");
+//            stringBuilder.append("hive -e \"load data inpath '/user/origin_data/db/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date'" + " OVERWRITE into table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + " partition(dt='$do_date')\"; \n\n");
+            //azkaban报错用
+//            exceptionExit(stringBuilder, tableInfo);
+            out.write(stringBuilder.toString());
+            out.write("\n\n\n");
+            out.close();
+        }
+
+    }
+
+
     static void everyTableSqoopShell_dim(LinkedHashSet<TableInfo> allTabInfo, DataBaseInfo dataBaseInfo) throws IOException {
 
         for (TableInfo tableInfo : allTabInfo) {
@@ -407,6 +456,48 @@ public class SqoopProducter {
     private static String odsSyncStrategy(TableInfo tableInfo) {
         if (!INCREMENTTABLE.contains(tableInfo.getDatabaseName() + "." + tableInfo.getTableName())) {
             return "--table " + tableInfo.getTableName() + " \\\n";
+        } else {
+            StringBuilder stringBuilder = new StringBuilder();
+            LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+            stringBuilder.append("--query \"select\n");
+            int size = tableFields.size();
+            for (FieldInfo fieldInfo : tableFields) {
+                size--;
+                stringBuilder.append(fieldInfo.getFieldName());
+                //比计数慢，还是快
+//                if(tableFields.getLast().equals(fieldInfo)){
+                if (size != 0) {
+                    stringBuilder.append(",");
+                }
+                stringBuilder.append("\n");
+            }
+            stringBuilder.append("from " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n"
+                    + "where date_format(createTime,'%Y-%m-%d') = \'$do_date\'\n"
+                    + "and \\$CONDITIONS\" \\\n"
+            );
+            return stringBuilder.toString();
+        }
+    }
+
+
+    //指定列
+    private static String odsSyncStrategy_SpecifiedField(TableInfo tableInfo) {
+
+        if (!INCREMENTTABLE.contains(tableInfo.getDatabaseName() + "." + tableInfo.getTableName())) {
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append("--table " + tableInfo.getTableName() + " \\\n");
+            stringBuilder.append("--columns ");
+            LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+            int size = tableFields.size();
+            for (FieldInfo fieldInfo : tableFields) {
+                size--;
+                stringBuilder.append(fieldInfo.getFieldName());
+                if (size != 0) {
+                    stringBuilder.append(",");
+                }
+            }
+            stringBuilder.append(" \\\n");
+            return stringBuilder.toString();
         } else {
             StringBuilder stringBuilder = new StringBuilder();
             LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
@@ -536,6 +627,7 @@ public class SqoopProducter {
         out.close();
     }
 
+    //hive -e 的参数过长，弃用
     static void hiveCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 
         BufferedWriter out = new BufferedWriter(new FileWriter("hive_create_table.sh"));
@@ -584,6 +676,7 @@ public class SqoopProducter {
     }
 
 
+    //每50个表进行一次hive-e,解决建表参数过长的问题
     static void hiveCreateTable2(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 
         BufferedWriter out = new BufferedWriter(new FileWriter("hive_create_table.sh"));
@@ -635,6 +728,57 @@ public class SqoopProducter {
     }
 
 
+    static void newChiCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+
+        BufferedWriter out = new BufferedWriter(new FileWriter("newChi_create_table.sh"));
+        out.write("hive -e '");
+
+        int i = 0;
+        for (TableInfo tableInfo : allTabInfo) {
+
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append(
+                    "create database if not exists " + LAYERPREFIX + tableInfo.getDatabaseName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "drop table if exists " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "create external table " + LAYERPREFIX + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
+
+            for (FieldInfo fieldInfo : tableInfo.getTableFields()) {
+                stringBuilder.append(
+                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fliterQuotation(fieldInfo.getColumnComment()) + "\" "
+                );
+                if (tableInfo.getTableFields().getLast() != fieldInfo) {
+                    stringBuilder.append(" ,\n");
+                } else {
+                    stringBuilder.append("\n)\n");
+                }
+            }
+            stringBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
+            stringBuilder.append(
+                    "PARTITIONED BY (`dt` string) \n" +
+                            "row format delimited fields terminated by \"\\001\" \n"
+                            + "location \"/bigdata/warehouse/ods/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";\n"
+            );
+
+//            exceptionExitCreateTable(stringBuilder, tableInfo);
+            out.write(stringBuilder.toString());
+//            out.write("\n\n");
+            if (i % 50 == 0) {
+                out.write("';\n hive -e '\n");
+            }
+            i++;
+
+        }
+        out.write("';\n");
+
+        out.close();
+    }
+
+
+    //KK 建表 只是文件名改变，后期可以直接使用hivecreatetable2包装
     static void hiveCreateTable_KK(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 
         BufferedWriter out = new BufferedWriter(new FileWriter("hive_create_table_KK.sh"));
@@ -685,7 +829,7 @@ public class SqoopProducter {
         out.close();
     }
 
-
+    //老chi 建表 只是文件名改变，后期可以直接使用hivecreatetable2包装
     static void hiveCreateTable_chi(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 
         BufferedWriter out = new BufferedWriter(new FileWriter("hive_create_table_chi.sh"));
@@ -736,6 +880,7 @@ public class SqoopProducter {
         out.close();
     }
 
+    //去掉单引号和双引号
     static String fliterQuotation(String s) throws IOException {
 //        if (s.contains("\'") || s.contains("\"")) {
         s = s.replaceAll("\"", "");
@@ -746,60 +891,19 @@ public class SqoopProducter {
     }
 
 
+    //标准化-把横线转换为下划线
     static String standardization(String s) {
         return fliterLine(s);
     }
 
+    //把横线转换为下划线
     static String fliterLine(String s) {
-        s = s.replaceAll("-", "_");
-        return s;
-    }
-
-    static void hiveCreateTable3(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
-
-        BufferedWriter out = new BufferedWriter(new FileWriter("hive_create_table.sh"));
-
-        for (TableInfo tableInfo : allTabInfo) {
-
-            StringBuilder stringBuilder = new StringBuilder();
-
-            stringBuilder.append("hive -e '");
-            stringBuilder.append(
-                    "create database if not exists " + tableInfo.getDatabaseName() + ";" + "\n");
-//            exceptionExit(stringBuilder, tableInfo);
-            stringBuilder.append(
-                    "drop table if exists " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + ";" + "\n");
-//            exceptionExit(stringBuilder, tableInfo);
-            stringBuilder.append(
-                    "create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
-
-            for (FieldInfo fieldInfo : tableInfo.getTableFields()) {
-                stringBuilder.append(
-                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
-                );
-                if (tableInfo.getTableFields().getLast() != fieldInfo) {
-                    stringBuilder.append(" ,\n");
-                } else {
-                    stringBuilder.append("\n)\n");
-                }
-            }
-            stringBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
-            stringBuilder.append(
-                    "PARTITIONED BY (`dt` string) \n" +
-                            "row format delimited fields terminated by \"\\001\" \n"
-                            + "location \"/bigdata/warehouse/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";';\n\n"
-            );
-
-            exceptionExitCreateTable(stringBuilder, tableInfo);
-            out.write(stringBuilder.toString());
-            out.write("\n\n");
-        }
-        out.write("';\n");
-
-        out.close();
+        String ss = s.replace("-", "_");
+        return ss;
     }
 
 
+    //dim的建表
     static void dimCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
 
         BufferedWriter out = new BufferedWriter(new FileWriter("dim_create_table.sh"));
@@ -850,6 +954,7 @@ public class SqoopProducter {
     }
 
 
+    //dwd的建表语句 比平常的建表的语句多了分区字段的特数处理（date_value）
     static void dwdCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
         BufferedWriter out = new BufferedWriter(new FileWriter("dwd_create_table.sh"));
         for (TableInfo tableInfo : allTabInfo) {
@@ -911,6 +1016,7 @@ public class SqoopProducter {
     }
 
 
+    //loaddata时候的策略
     static void hiveLoadData(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
         BufferedWriter out = new BufferedWriter(new FileWriter("hdfs_to_ods_db.sh"));
 
@@ -1016,10 +1122,10 @@ public class SqoopProducter {
                 "result=$? \n" +
                         "echo \"result = $result\" \n" +
                         "if [ $result -ne 0 ] ; then \n" +
-                        "    echo \" error in " +  tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "    echo \" error in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
                         "    exit $result\n" +
                         "else\n" +
-                        "    echo \" successful in " +  tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
+                        "    echo \" successful in " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\" \n" +
                         "fi\n\n"
         );
     }
@@ -1028,6 +1134,52 @@ public class SqoopProducter {
     static void azkabanOdsFlow(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
         //创建所需目录
         String dirLocation = "./azkaban-data-warehouse/";
+        File f = new File(dirLocation);
+        if (!f.exists()) {
+            f.mkdirs();
+        }
+        //生成azkaban的执行工程
+        BufferedWriter out2 = new BufferedWriter(new FileWriter(dirLocation + "DataWarehouse.project"));
+        out2.write("azkaban-flow-version: 2.0");
+
+        out2.close();
+        BufferedWriter out = new BufferedWriter(new FileWriter(dirLocation + "DataWarehouse.flow"));
+        out.write("nodes:\n");
+
+        StringBuilder stringBuilder = new StringBuilder();
+        for (TableInfo tableInfo : allTabInfo) {
+            stringBuilder.append("  - name: sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    type: command\n" +
+                    "    config:\n" +
+                    "      command: sh " + SQOOPSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+
+
+            stringBuilder.append("  - name: ods." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    type: command\n" +
+                    "    dependsOn:\n" +
+                    "      - " + "sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    config:\n" +
+                    "      command: sh " + ODSSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+        }
+
+//        for (TableInfo tableInfo : allTabInfo) {
+//            stringBuilder.append("  - name: sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+//                    "    type: command\n" +
+//                    "    dependsOn:\n" +
+//                    "      - " + "sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+//                    "    config:\n" +
+//                    "      command: sh " + ODSSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+//        }
+
+        out.write(stringBuilder.toString());
+        out.write("\n\n\n");
+        out.close();
+    }
+
+
+    static void azkabanNewChiFlow(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        //创建所需目录
+        String dirLocation = "./newChi-azkaban-schedule/";
         File f = new File(dirLocation);
         if (!f.exists()) {
             f.mkdirs();
@@ -1091,7 +1243,7 @@ public class SqoopProducter {
             stringBuilder.append("  - name: hdfs." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
                     "    type: command\n" +
                     "    config:\n" +
-                    "      command: sh " + CHIAGENTSHELLLOCATION + "/hdfs/" +  tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+                    "      command: sh " + CHIAGENTSHELLLOCATION + "/hdfs/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
 
 
             stringBuilder.append("  - name: tidb." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
@@ -1179,23 +1331,45 @@ public class SqoopProducter {
 
         StringBuilder stringBuilder = new StringBuilder();
         for (TableInfo tableInfo : allTabInfo) {
-
             stringBuilder.append("  - name: dwd." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
                     "    type: command\n" +
                     "    dependsOn:\n" +
                     "      - " + "ods." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
                     "    config:\n" +
-                    "      command: sh " + DWDSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+                    "      command: sh " + DWDSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
         }
 
-//        for (TableInfo tableInfo : allTabInfo) {
-//            stringBuilder.append("  - name: sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
-//                    "    type: command\n" +
-//                    "    dependsOn:\n" +
-//                    "      - " + "sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
-//                    "    config:\n" +
-//                    "      command: sh " + ODSSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
-//        }
+        out.write(stringBuilder.toString());
+        out.write("\n\n\n");
+        out.close();
+    }
+
+
+
+    static void azkabanDwmFlow(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        //创建所需目录
+        String dirLocation = "./dwm-azkaban-schedule/";
+        File f = new File(dirLocation);
+        if (!f.exists()) {
+            f.mkdirs();
+        }
+        //生成azkaban的执行工程
+        BufferedWriter out2 = new BufferedWriter(new FileWriter(dirLocation + "dwm_schedule.project"));
+        out2.write("azkaban-flow-version: 2.0");
+
+        out2.close();
+        BufferedWriter out = new BufferedWriter(new FileWriter(dirLocation + "dwm_schedule.flow"));
+        out.write("nodes:\n");
+
+        StringBuilder stringBuilder = new StringBuilder();
+        for (TableInfo tableInfo : allTabInfo) {
+            stringBuilder.append("  - name: dwm." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    type: command\n" +
+                    "    dependsOn:\n" +
+                    "      - " + "dwd." + "\n" +
+                    "    config:\n" +
+                    "      command: sh " + DWMSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+        }
 
         out.write(stringBuilder.toString());
         out.write("\n\n\n");
@@ -1236,20 +1410,11 @@ public class SqoopProducter {
         return allTabInfo;
     }
 
-
-
-
-    public static void main(String[] args) throws IOException, SQLException {
-
-        chineseRds_to_Tidb();
-    }
-
-
     static void chiAgentEveryTableSqoopShell(LinkedHashSet<TableInfo> allTabInfo, DataBaseInfo dataBaseInfo) throws IOException {
 
 
         for (TableInfo tableInfo : allTabInfo) {
-            String dirLocation = "./chiAgent_to_tidb/hdfs/" +  standardization(tableInfo.getDatabaseName());
+            String dirLocation = "./chiAgent_to_tidb/hdfs/" + standardization(tableInfo.getDatabaseName());
             File f = new File(dirLocation);
             if (!f.exists()) {
                 f.mkdirs();
@@ -1263,9 +1428,9 @@ public class SqoopProducter {
                             "--connect " + dataBaseInfo.getUrl() + tableInfo.getDatabaseName() + " \\\n" +
                             "--username " + dataBaseInfo.getUser() + " \\\n" +
                             "--password " + dataBaseInfo.getPassword() + " \\\n" +
-                            odsSyncStrategy(tableInfo) +
+                            odsSyncStrategy_SpecifiedField(tableInfo) +
 //                            "--table " + tableInfo.getTableName() + " \\\n" +
-                            "--target-dir /bigdata/origin_data/tmp/"  + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + " \\\n" +
+                            "--target-dir /bigdata/origin_data/tmp/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + " \\\n" +
                             "--delete-target-dir \\\n" +
                             "--hive-drop-import-delims \\\n" +
                             "--fields-terminated-by '\\001' \\\n" +
@@ -1288,7 +1453,7 @@ public class SqoopProducter {
     static void chiAgentEveryTableTidbShell(LinkedHashSet<TableInfo> allTabInfo, DataBaseInfo dataBaseInfo) throws IOException {
 
         for (TableInfo tableInfo : allTabInfo) {
-            String dirLocation = "./chiAgent_to_tidb/tidb/" +  standardization(tableInfo.getDatabaseName());
+            String dirLocation = "./chiAgent_to_tidb/tidb/" + standardization(tableInfo.getDatabaseName());
             File f = new File(dirLocation);
             if (!f.exists()) {
                 f.mkdirs();
@@ -1296,7 +1461,7 @@ public class SqoopProducter {
 
             BufferedWriter out = new BufferedWriter(new FileWriter("./chiAgent_to_tidb/tidb/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh"));
             StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("mysql -h 172.28.30.28 -P 3306  -u zhengyajun -pzhengyajun8899 -e \"truncate "+ tableInfo.getDatabaseName() + "." + tableInfo.getTableName() +"\"");
+            stringBuilder.append("mysql -h 172.28.30.28 -P 3306  -u zhengyajun -pzhengyajun8899 -e \"truncate " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\"");
             stringBuilder.append("\n\n");
             exceptionExit(stringBuilder, tableInfo);
             stringBuilder.append("\n");
@@ -1306,7 +1471,7 @@ public class SqoopProducter {
                             "--username " + dataBaseInfo.getUser() + " \\\n" +
                             "--password " + dataBaseInfo.getPassword() + " \\\n" +
                             odsSyncStrategy(tableInfo) +
-                            "--export-dir /bigdata/origin_data/tmp/"  + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/ \\\n" +
+                            "--export-dir /bigdata/origin_data/tmp/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/ \\\n" +
                             "--fields-terminated-by '\\001' \\\n" +
                             "--num-mappers 1 \\\n" +
                             "--input-null-string '\\\\N' \\\n" +
@@ -1326,13 +1491,35 @@ public class SqoopProducter {
                 "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
                 "WHERE   a.TABLE_SCHEMA = 'cn_account' \n" +
                 "OR a.TABLE_SCHEMA = 'cn_marketer' \n" +
-                "OR a.TABLE_SCHEMA = 'cn_member' ;" ;
+                "OR a.TABLE_SCHEMA = 'cn_member' " +
+                ";";
+
 
         DataBaseInfo chiAgent = new DataBaseInfo(
                 "jdbc:mysql://rm-2zekupo10c175t4q1.mysql.rds.aliyuncs.com:3306/",
                 "qa_root",
                 "P052ao79mBwDxN8fzesH",
                 sqlChiAgent
+        );
+
+
+        String sqleng = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE   a.TABLE_SCHEMA = 'english_video' \n" +
+                "OR a.TABLE_SCHEMA = 'english_agent' \n" +
+                "OR a.TABLE_SCHEMA = 'english_read' \n" +
+                "OR a.TABLE_SCHEMA = 'english_parent' \n" +
+                "OR a.TABLE_SCHEMA = 'english_student' " +
+                ";";
+
+
+        DataBaseInfo eng = new DataBaseInfo(
+                "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/",
+                "qa_alldata_ro",
+                "kUM8qL1cubf0Xf7RI9AT",
+                sqleng
         );
 
 
@@ -1344,14 +1531,19 @@ public class SqoopProducter {
         );
 
         LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(chiAgent, sqlChiAgent);
-        chiAgentEveryTableSqoopShell(allTabInfo,chiAgent);
-        chiAgentEveryTableTidbShell(allTabInfo,tidbTest);
+        chiAgentEveryTableSqoopShell(allTabInfo, chiAgent);
+
+        LinkedHashSet<TableInfo> allTabInfo2 = extractTabInfo2(eng, sqleng);
+        chiAgentEveryTableSqoopShell(allTabInfo2, eng);
+
+        allTabInfo.addAll(allTabInfo2);
+        chiAgentEveryTableTidbShell(allTabInfo, tidbTest);
         azkabanChiAgentFlow(allTabInfo);
 
     }
 
     //cdh的
-    static void cdh() throws SQLException, IOException {
+    static void cdh() throws SQLException, IOException, InterruptedException {
         //        BufferedWriter out = new BufferedWriter(new FileWriter("sqoopTest.sh"));
         // write your code here
 //        String encode = URLEncoder.encode(("30,18"), "utf-8");
@@ -1453,29 +1645,44 @@ public class SqoopProducter {
         String sqleng = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
                 "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
-                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
                 "WHERE  a.TABLE_SCHEMA LIKE '" + "eng" + "%' ;";
 
         String sqlkk = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
                 "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
-                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
                 "WHERE  a.TABLE_SCHEMA LIKE '" + "kk" + "%' \n" +
                 "or " + "a.TABLE_SCHEMA = 'ientrepreneurship_dev' ;";
 
-        String sqlchi = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+        String sqlchi = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment,\n" +
+                "row_number() over(PARTITION BY a.`TABLE_SCHEMA`,a.`TABLE_NAME` ORDER BY a.`ORDINAL_POSITION` ) AS num\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
                 "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
-                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
-                "WHERE  a.TABLE_SCHEMA LIKE '" + "chi" + "%' ;";
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "chi" + "%' \n" +
+                "AND a.`TABLE_SCHEMA`!= 'chinese-user-login' \n" +
+                "AND a.`TABLE_SCHEMA`!= 'chinese-crawl' ;";
 
 
         String sqldim = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
                 "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
-                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND A.TABLE_NAME = B.TABLE_NAME \n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
                 "WHERE  a.TABLE_SCHEMA LIKE '" + "dim" + "%' ;";
 
+        String sqldwd = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "dwd" + "%' " +
+                "and a.TABLE_NAME like 'dwd%' ;";
+
+        String sqldwm = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "dwm" + "%' ;";
 
         //------------------------------------------------------------------
 
@@ -1488,6 +1695,21 @@ public class SqoopProducter {
                 "kUM8qL1cubf0Xf7RI9AT",
                 sqleng
         );
+
+        DataBaseInfo dwd = new DataBaseInfo(
+                "jdbc:mysql://10.16.40.154:3306/",
+                "zhuangshuai",
+                "0UtLSBLnYajUutJh",
+                sqldwd
+        );
+
+        DataBaseInfo dwm = new DataBaseInfo(
+                "jdbc:mysql://10.16.40.154:3306/",
+                "zhuangshuai",
+                "0UtLSBLnYajUutJh",
+                sqldwm
+        );
+
 
         DataBaseInfo kk = new DataBaseInfo(
                 "jdbc:mysql://rm-2ze02m3a090ke3zub.mysql.rds.aliyuncs.com:3306/",
@@ -1511,30 +1733,59 @@ public class SqoopProducter {
         );
 
         //ods层
-//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(chi, sqlchi);
-//        hiveCreateTable_chi(allTabInfo);
-        LinkedHashSet<TableInfo> allTabInfo3 = extractTabInfo2(eng, sqleng);
-        everyTableSqoopShell(allTabInfo3, eng);
-//        standardization(allTabInfo3);
+//        LinkedHashSet<TableInfo> allTabInfo3 = extractTabInfo2(eng, sqleng);
+//        everyTableSqoopShell_SpecifiedField(allTabInfo3, eng);
+//        hiveCreateTable2(allTabInfo3);
+//
+//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(kk, sqlkk);
+//        everyTableSqoopShell_SpecifiedField(allTabInfo, kk);
+//        hiveCreateTable_KK(allTabInfo);
+//
+//        LinkedHashSet<TableInfo> allTabInfo2 = extractTabInfo2(chi, sqlchi);
+//        everyTableSqoopShell_SpecifiedField(allTabInfo2, chi);
+////        standardization(allTabInfo2);
+////        hiveCreateTable_chi(allTabInfo2);
+//        allTabInfo.addAll(allTabInfo2);
+//        allTabInfo.addAll(allTabInfo3);
+////
+//        everyTableOdsShell(allTabInfo);
+//        azkabanOdsFlow(allTabInfo);
 
-        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(kk, sqlkk);
-        everyTableSqoopShell(allTabInfo, kk);
 
-        LinkedHashSet<TableInfo> allTabInfo2 = extractTabInfo2(chi, sqlchi);
-        everyTableSqoopShell(allTabInfo2, chi);
-        standardization(allTabInfo2);
+        //dwd调度
+//        LinkedHashSet<TableInfo> allTabInfo4 = extractTabInfo2(dwd, sqldwd);
+//        azkabanDwdFlow(allTabInfo4);
+
+        //dwm调度
+        LinkedHashSet<TableInfo> allTabInfo5 = extractTabInfo2(dwm, sqldwm);
+        azkabanDwmFlow(allTabInfo5);
+
+//        everyTableOdsShell(allTabInfo2);
+//        azkabanOdsFlow(allTabInfo2);
 
 
-        allTabInfo.addAll(allTabInfo2);
-        allTabInfo.addAll(allTabInfo3);
+//        everyTableOdsShell(allTabInfo);
+//        azkabanOdsFlow(allTabInfo);
 
-        everyTableOdsShell(allTabInfo);
-        azkabanOdsFlow(allTabInfo);
+//        LinkedHashMap<String,Integer> map =  new  LinkedHashMap<String,Integer>();
+//        for (TableInfo tableInfo : allTabInfo2) {
+//
+//            if(map.containsKey(tableInfo.getDatabaseName()+"."+tableInfo.getTableName())){
+//                map.put(tableInfo.getDatabaseName()+"."+tableInfo.getTableName(),map.get(tableInfo.getDatabaseName()+"."+tableInfo.getTableName())+1);
+//            }else {
+//
+//                map.put(tableInfo.getDatabaseName()+"."+tableInfo.getTableName(),0);
+//            }
+//
+//
+//        }
+
+//        Thread.sleep(10);
 
 
         //dwd
 //        dwdCreateTable(allTabInfo);
-//        azkabanDwdFlow(allTabInfo);
+
 
         //dim
 //        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(dim, sqldim);
@@ -1545,8 +1796,249 @@ public class SqoopProducter {
 
         //kk
 //        hiveCreateTable2(allTabInfo);
+    }
 
+
+
+
+    static void newChi() throws SQLException, IOException {
+        String sqlnewchi = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE 'chi%'\n" +
+                "OR  a.TABLE_SCHEMA LIKE 'friend_system%'\n" +
+                "OR a.TABLE_SCHEMA LIKE 'tope_user_center%';";
+
+        DataBaseInfo newchi1 = new DataBaseInfo(
+                "jdbc:mysql://172.28.30.86:3306/",
+                "canal",
+                "lVHAsgwEn934kQQUWene",
+                sqlnewchi
+        );
+        DataBaseInfo newchi2 = new DataBaseInfo(
+                "jdbc:mysql://172.28.30.85:3306/",
+                "canal",
+                "lVHAsgwEn934kQQUWene",
+                sqlnewchi
+        );
+
+        DataBaseInfo newchiMaster = new DataBaseInfo(
+                "jdbc:mysql://172.28.30.87:3306/",
+                "qa_new_chinese",
+                "Aa123456",
+                sqlnewchi
+        );
+
+        LinkedHashSet<TableInfo> allTabInfoTmpAll = new LinkedHashSet<TableInfo>();
+        LinkedHashSet<TableInfo> allTabInfotmp1 = extractTabInfo2(newchi1, sqlnewchi);
+        LinkedHashSet<TableInfo> allTabInfotmp2 = extractTabInfo2(newchi2, sqlnewchi);
+        allTabInfoTmpAll.addAll(allTabInfotmp1);
+        allTabInfoTmpAll.addAll(allTabInfotmp2);
+        //过滤
+        LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
+
+        for (TableInfo tableInfo : allTabInfoTmpAll) {
+            String databaseName = tableInfo.getDatabaseName();
+            tableInfo.setDatabaseName(databaseName.substring(0, databaseName.lastIndexOf('_')));
+            allTabInfo.add(tableInfo);
+        }
+
+//        newChiCreateTable(allTabInfo);
+//        hiveCreateTable2(allTabInfo);
+        everyTableSqoopShell_SpecifiedField(allTabInfo, newchiMaster);
+        everyTableOdsShell(allTabInfo);
+        azkabanNewChiFlow(allTabInfo);
 
     }
 
+    static void fliter_postfix(LinkedHashSet<TableInfo> allTabInfo) {
+        for (TableInfo tableInfo : allTabInfo) {
+            String databaseName = tableInfo.getDatabaseName();
+            databaseName.substring(0, databaseName.length() - 2);
+            tableInfo.setDatabaseName(databaseName.substring(0, databaseName.length() - 2));
+        }
+    }
+
+
+    static void tmp() throws SQLException, IOException {
+        String sqltmp = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_NAME = '" + "agent_relation' \n" +
+                "or  a.TABLE_NAME = '" + "lianxu_yuedu20200921' \n" +
+                "or  a.TABLE_NAME = '" + "activate_user20201028' ;";
+
+        DataBaseInfo tmp = new DataBaseInfo(
+                "jdbc:mysql://10.16.40.154:3306/",
+                "zhuangshuai",
+                "0UtLSBLnYajUutJh",
+                sqltmp
+        );
+
+        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(tmp, sqltmp);
+
+
+        tmpCreateTable(allTabInfo);
+        everyTableSqoopShell_SpecifiedField(allTabInfo, tmp);
+        everyTableOdsShell(allTabInfo);
+    }
+
+
+    static void tmpCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        BufferedWriter out = new BufferedWriter(new FileWriter("tmp_create_table.sh"));
+        for (TableInfo tableInfo : allTabInfo) {
+
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append("hive -e '");
+            stringBuilder.append(
+                    "create database if not exists " + tableInfo.getDatabaseName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "drop table if exists " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
+
+            boolean isPartitionTable = false;
+            int size = tableInfo.getTableFields().size();
+            LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+            for (int i = 0; i < size; i++) {
+                FieldInfo fieldInfo = tableFields.get(i);
+                if (i + 2 == size && "date_value".equals(tableFields.get(i + 1).getFieldName())) {
+                    stringBuilder.append(
+                            "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+                    );
+                    stringBuilder.append("\n)\n");
+                    isPartitionTable = true;
+                    break;
+                }
+                if ("date_value".equals(fieldInfo.getFieldName())) {
+                    isPartitionTable = true;
+                    continue;
+                }
+                stringBuilder.append(
+                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+                );
+                //最后一个不加逗号
+                if (tableInfo.getTableFields().getLast() != fieldInfo) {
+                    stringBuilder.append(" ,\n");
+                } else {
+                    stringBuilder.append("\n)\n");
+                }
+            }
+            stringBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
+            //是分区表则加入分区
+            if (isPartitionTable) {
+                stringBuilder.append("PARTITIONED BY (`dt` string) \n");
+            }
+            stringBuilder.append(
+//                    "PARTITIONED BY (`dt` string) \n" +
+                    "row format delimited fields terminated by \"\\001\" \n"
+                            + "location \"/bigdata/warehouse/tmp/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";");
+            stringBuilder.append("';\n\n");
+            exceptionExitCreateTable(stringBuilder, tableInfo);
+            out.write(stringBuilder.toString());
+            out.write("\n\n");
+        }
+//        out.write("';\n");
+        out.close();
+    }
+
+
+    static void dwn() throws SQLException, IOException {
+
+        //暂时没有加入到逻辑，这两个表示truncate和分区同时存在
+        DIMTRUNCATEANDDATAVALUE.add("dwm.dwm_agent_day_buy");
+        DIMTRUNCATEANDDATAVALUE.add("dwm.dwm_agent_day");
+
+
+        String sqldwm = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "dwm" + "%' ;";
+
+        DataBaseInfo dwm = new DataBaseInfo(
+                "jdbc:mysql://10.16.40.154:3306/",
+                "zhuangshuai",
+                "0UtLSBLnYajUutJh",
+                sqldwm
+        );
+
+        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(dwm, sqldwm);
+        dwmCreateTable(allTabInfo);
+
+    }
+
+    static void dwmCreateTable(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        BufferedWriter out = new BufferedWriter(new FileWriter("dwm_create_table.sh"));
+        for (TableInfo tableInfo : allTabInfo) {
+
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.append("hive -e '");
+            stringBuilder.append(
+                    "create database if not exists " + tableInfo.getDatabaseName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "drop table if exists " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + ";" + "\n");
+//            exceptionExit(stringBuilder, tableInfo);
+            stringBuilder.append(
+                    "create external table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "(  \n");
+
+            boolean isPartitionTable = false;
+            int size = tableInfo.getTableFields().size();
+            LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+            for (int i = 0; i < size; i++) {
+                FieldInfo fieldInfo = tableFields.get(i);
+                if (i + 2 == size && "date_value".equals(tableFields.get(i + 1).getFieldName())) {
+                    stringBuilder.append(
+                            "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+                    );
+                    stringBuilder.append("\n)\n");
+                    isPartitionTable = true;
+                    break;
+                }
+                if ("date_value".equals(fieldInfo.getFieldName())) {
+                    isPartitionTable = true;
+                    continue;
+                }
+                stringBuilder.append(
+                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+                );
+                //最后一个不加逗号
+                if (tableInfo.getTableFields().getLast() != fieldInfo) {
+                    stringBuilder.append(" ,\n");
+                } else {
+                    stringBuilder.append("\n)\n");
+                }
+            }
+            stringBuilder.append("COMMENT \"" + tableInfo.getTableComment() + "\"\n");
+            //是分区表则加入分区
+            if (isPartitionTable) {
+                stringBuilder.append("PARTITIONED BY (`dt` string) \n");
+            }
+            stringBuilder.append(
+//                    "PARTITIONED BY (`dt` string) \n" +
+                    "row format delimited fields terminated by \"\\001\" \n"
+                            + "location \"/bigdata/warehouse/dwm/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/\";");
+            stringBuilder.append("';\n\n");
+            exceptionExitCreateTable(stringBuilder, tableInfo);
+            out.write(stringBuilder.toString());
+            out.write("\n\n");
+        }
+//        out.write("';\n");
+        out.close();
+    }
+
+
+    public static void main(String[] args) throws IOException, SQLException, InterruptedException {
+//        chineseRds_to_Tidb();
+//        newChi();
+//        cdh();
+        tmp();
+//        dwn();
+//        chineseRds_to_Tidb();
+    }
 }
