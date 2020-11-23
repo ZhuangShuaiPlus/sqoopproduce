@@ -39,7 +39,8 @@ public class SqoopProducter {
     //    public static final String PREFIX = "ods";
     public static final String PREFIX = "eng";
     //    public static final String LAYERPREFIX = "ods_";
-    public static final String LAYERPREFIX = "ods_";
+//    public static final String LAYERPREFIX = "ods_";
+    public static final String LAYERPREFIX = "dwd_";
     public static final String ODSSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_ods";
     public static final String DIMSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_dim";
     public static final String DWDSHELLLOCATION = "/root/bin/azkabantest/ods_to_dwd";
@@ -1345,7 +1346,6 @@ public class SqoopProducter {
     }
 
 
-
     static void azkabanDwmFlow(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
         //创建所需目录
         String dirLocation = "./dwm-azkaban-schedule/";
@@ -1541,6 +1541,209 @@ public class SqoopProducter {
         azkabanChiAgentFlow(allTabInfo);
 
     }
+
+
+    //ambanri
+    static void ambanri() throws SQLException, IOException, InterruptedException {
+
+
+        INCREMENTTABLE.add("english_game.gm_player_property_change");
+        INCREMENTTABLE.add("english_read.rd_day_total_read");
+        INCREMENTTABLE.add("chinese_power_value.word_study_stat");
+        INCREMENTTABLE.add("english_ebook.ek_student_first_ebook");
+        INCREMENTTABLE.add("english_read.rd_day_read");
+        INCREMENTTABLE.add("english_video.hs_speak_student_answer");
+        INCREMENTTABLE.add("chinese_article.article_sentence_info");
+        INCREMENTTABLE.add("english_read.rd_through_book");
+        INCREMENTTABLE.add("english_parent.pt_heart_talk");
+        INCREMENTTABLE.add("english_read.rd_student_interrupt");
+        INCREMENTTABLE.add("english_gold.gd_gold_bill");
+        INCREMENTTABLE.add("english_game.gm_player_task");
+        INCREMENTTABLE.add("english_video.vd_play_film_log");
+        INCREMENTTABLE.add("english_oral.ol_day_oral");
+        INCREMENTTABLE.add("chinese_article.read_article_info");
+        INCREMENTTABLE.add("chinese_article.read_article_log");
+        INCREMENTTABLE.add("english_oral.ol_day_oral_bak");
+        INCREMENTTABLE.add("english_parent.pt_read_activity_sign_in");
+        INCREMENTTABLE.add("english_student.st_student_view");
+        INCREMENTTABLE.add("english_ebook.ek_student_ebook");
+        INCREMENTTABLE.add("english_oral.ol_student_review");
+        INCREMENTTABLE.add("english_student.st_student_report");
+        INCREMENTTABLE.add("english_oral.ol_student_review_bak");
+        INCREMENTTABLE.add("english_parent.pt_upload_sign_pic");
+        INCREMENTTABLE.add("chinese_power_value.user_word_study_stat");
+        INCREMENTTABLE.add("chinese_introduction.search_history");
+        INCREMENTTABLE.add("english_gold.gd_gold_reward_detail");
+        INCREMENTTABLE.add("point.point_etp_race_login_sign");
+        INCREMENTTABLE.add("english_teacher.tc_student_task");
+//        INCREMENTTABLE.add("kk_marketer.thirdpartymsglog");//没有createtime的字段
+        INCREMENTTABLE.add("chinese_introduction.browsing_history_log");
+        INCREMENTTABLE.add("chinese_introduction.user_behavior_log");
+        INCREMENTTABLE.add("english_video.vd_play_film");
+        INCREMENTTABLE.add("english_read.rd_student_answer_exercise");
+        INCREMENTTABLE.add("chinese_user_data.rank_user_source_increase_log");
+        INCREMENTTABLE.add("english_read.rd_student_favorite_book");
+        INCREMENTTABLE.add("chinese_power_value.day_study_data_stat");
+        INCREMENTTABLE.add("chinese_power_value.study_milestone_evaluate_stat");
+        INCREMENTTABLE.add("english_parent.pt_parent_task");
+
+        //-----------------------------------------------------
+        String sqleng = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "eng" + "%' ;";
+
+        String sqlkk = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "kk" + "%' \n" +
+                "or " + "a.TABLE_SCHEMA = 'ientrepreneurship_dev' ;";
+
+        String sqlchi = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment,\n" +
+                "row_number() over(PARTITION BY a.`TABLE_SCHEMA`,a.`TABLE_NAME` ORDER BY a.`ORDINAL_POSITION` ) AS num\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "chi" + "%' \n" +
+                "AND a.`TABLE_SCHEMA`!= 'chinese-user-login' \n" +
+                "AND a.`TABLE_SCHEMA`!= 'chinese-crawl' ;";
+
+
+        String sqldim = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "dim" + "%' ;";
+
+        String sqldwd = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "dwd" + "%' " +
+                "and a.TABLE_NAME like 'dwd%' ;";
+
+        String sqldwm = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "dwm" + "%' ;";
+
+        //------------------------------------------------------------------
+
+
+//        LinkedHashSet<TableInfo> allTabInfo = extractAllTabInfo();
+
+        DataBaseInfo eng = new DataBaseInfo(
+                "jdbc:mysql://drdsbggaprundd1i.drds.aliyuncs.com:3306/",
+                "qa_alldata_ro",
+                "kUM8qL1cubf0Xf7RI9AT",
+                sqleng
+        );
+
+        DataBaseInfo dwd = new DataBaseInfo(
+                "jdbc:mysql://10.16.40.154:3306/",
+                "zhuangshuai",
+                "0UtLSBLnYajUutJh",
+                sqldwd
+        );
+
+        DataBaseInfo dwm = new DataBaseInfo(
+                "jdbc:mysql://10.16.40.154:3306/",
+                "zhuangshuai",
+                "0UtLSBLnYajUutJh",
+                sqldwm
+        );
+
+
+        DataBaseInfo kk = new DataBaseInfo(
+                "jdbc:mysql://rm-2ze02m3a090ke3zub.mysql.rds.aliyuncs.com:3306/",
+                "tidb_ro",
+                "LALQJGpfiw1jUyLhTqu6",
+                sqlkk
+        );
+
+        DataBaseInfo chi = new DataBaseInfo(
+                "jdbc:mysql://tope-qa-all-bj.rwlb.rds.aliyuncs.com:3306/",
+                "chin_all_mgr",
+                "fBwR3RMFeZ9RyNZC#v",
+                sqlchi
+        );
+
+        DataBaseInfo dim = new DataBaseInfo(
+                "jdbc:mysql://172.28.30.28:3306/",
+                "zhengyajun",
+                "zhengyajun8899",
+                sqldim
+        );
+
+        //ods层
+//        LinkedHashSet<TableInfo> allTabInfo3 = extractTabInfo2(eng, sqleng);
+//        everyTableSqoopShell_SpecifiedField(allTabInfo3, eng);
+//        hiveCreateTable2(allTabInfo3);
+//
+//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(kk, sqlkk);
+//        everyTableSqoopShell_SpecifiedField(allTabInfo, kk);
+//        hiveCreateTable_KK(allTabInfo);
+//
+//        LinkedHashSet<TableInfo> allTabInfo2 = extractTabInfo2(chi, sqlchi);
+//        everyTableSqoopShell_SpecifiedField(allTabInfo2, chi);
+////        standardization(allTabInfo2);
+////        hiveCreateTable_chi(allTabInfo2);
+//        allTabInfo.addAll(allTabInfo2);
+//        allTabInfo.addAll(allTabInfo3);
+////
+//        everyTableOdsShell(allTabInfo);
+//        azkabanOdsFlow(allTabInfo);
+
+
+        //dwd调度
+//        LinkedHashSet<TableInfo> allTabInfo4 = extractTabInfo2(dwd, sqldwd);
+//        azkabanDwdFlow(allTabInfo4);
+
+        //dwm调度
+        LinkedHashSet<TableInfo> allTabInfo5 = extractTabInfo2(dwm, sqldwm);
+        azkabanDwmFlow(allTabInfo5);
+
+//        everyTableOdsShell(allTabInfo2);
+//        azkabanOdsFlow(allTabInfo2);
+
+
+//        everyTableOdsShell(allTabInfo);
+//        azkabanOdsFlow(allTabInfo);
+
+//        LinkedHashMap<String,Integer> map =  new  LinkedHashMap<String,Integer>();
+//        for (TableInfo tableInfo : allTabInfo2) {
+//
+//            if(map.containsKey(tableInfo.getDatabaseName()+"."+tableInfo.getTableName())){
+//                map.put(tableInfo.getDatabaseName()+"."+tableInfo.getTableName(),map.get(tableInfo.getDatabaseName()+"."+tableInfo.getTableName())+1);
+//            }else {
+//
+//                map.put(tableInfo.getDatabaseName()+"."+tableInfo.getTableName(),0);
+//            }
+//
+//
+//        }
+
+//        Thread.sleep(10);
+
+
+        //dwd
+//        dwdCreateTable(allTabInfo);
+
+
+        //dim
+//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(dim, sqldim);
+//        dimCreateTable(allTabInfo);
+//        everyTableSqoopShell_dim(allTabInfo, dim);
+//        everyTableDimShell(allTabInfo);
+//        azkabanDimFlow(allTabInfo);
+
+        //kk
+//        hiveCreateTable2(allTabInfo);
+    }
+
 
     //cdh的
     static void cdh() throws SQLException, IOException, InterruptedException {
@@ -1753,12 +1956,12 @@ public class SqoopProducter {
 
 
         //dwd调度
-//        LinkedHashSet<TableInfo> allTabInfo4 = extractTabInfo2(dwd, sqldwd);
+        LinkedHashSet<TableInfo> allTabInfo4 = extractTabInfo2(dwd, sqldwd);
 //        azkabanDwdFlow(allTabInfo4);
 
         //dwm调度
-        LinkedHashSet<TableInfo> allTabInfo5 = extractTabInfo2(dwm, sqldwm);
-        azkabanDwmFlow(allTabInfo5);
+//        LinkedHashSet<TableInfo> allTabInfo5 = extractTabInfo2(dwm, sqldwm);
+//        azkabanDwmFlow(allTabInfo5);
 
 //        everyTableOdsShell(allTabInfo2);
 //        azkabanOdsFlow(allTabInfo2);
@@ -1784,7 +1987,10 @@ public class SqoopProducter {
 
 
         //dwd
-//        dwdCreateTable(allTabInfo);
+        dwdCreateTable(allTabInfo4);
+        everyTableSqoopShell_SpecifiedField(allTabInfo4, dwd);
+
+        everyTableOdsShell(allTabInfo4);
 
 
         //dim
@@ -1799,6 +2005,9 @@ public class SqoopProducter {
     }
 
 
+    static void prodOds() {
+
+    }
 
 
     static void newChi() throws SQLException, IOException {
@@ -2036,8 +2245,8 @@ public class SqoopProducter {
     public static void main(String[] args) throws IOException, SQLException, InterruptedException {
 //        chineseRds_to_Tidb();
 //        newChi();
-//        cdh();
-        tmp();
+        cdh();
+//        tmp();
 //        dwn();
 //        chineseRds_to_Tidb();
     }
