@@ -241,6 +241,59 @@ public class SqoopProducter {
         }
         dbAndTable.setTableFields(fields);
         allTabInfo.add(dbAndTable);
+        //移除__drds__system__recyclebin__类
+        fliterSpecialTable(allTabInfo);
+        return allTabInfo;
+    }
+
+
+    static LinkedHashSet<TableInfo> extractTabInfoSpecifyDatabase(DataBaseInfo dataBaseInfo, String sql, String specifyDatabase) throws SQLException {
+        //1.加载驱动程序
+//        Class.forName("com.mysql.jdbc.Driver");
+        Connection conn = DriverManager.getConnection(dataBaseInfo.getUrl(), dataBaseInfo.getUser(), dataBaseInfo.getPassword());
+        Statement stmt = conn.createStatement();
+        stmt.executeQuery(specifyDatabase);
+        ResultSet rs = stmt.executeQuery(sql);
+        TableInfo previousTable = null;
+        LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
+        LinkedList<FieldInfo> fields = null;
+        String dbName = null;
+        String tabName = null;
+        String cluName = null;
+        String cluType = null;
+        String columnComment = null;
+        String tblComment = null;
+        TableInfo dbAndTable = null;
+        while (rs.next()) {
+            dbName = rs.getString("dbName");
+            tabName = rs.getString("tabName");
+            cluName = rs.getString("cluName");
+            cluType = rs.getString("cluType");
+            columnComment = rs.getString("columnComment");
+            tblComment = rs.getString("tblComment");
+            dbAndTable = new TableInfo(dbName, tabName, tblComment);
+
+
+            if (previousTable == null || !previousTable.equals(dbAndTable)) {
+                if (previousTable != null) {
+                    previousTable.setTableFields(fields);
+                    allTabInfo.add(previousTable);
+                }
+                fields = new LinkedList<FieldInfo>();
+                previousTable = dbAndTable;
+            }
+
+            FieldInfo fieldInfo = new FieldInfo();
+            fieldInfo.setFieldName(cluName);
+            fieldInfo.setDataType(cluType);
+            fieldInfo.setColumnComment(columnComment);
+            fields.add(fieldInfo);
+        }
+        dbAndTable.setTableFields(fields);
+        allTabInfo.add(dbAndTable);
+
+        //移除__drds__system__recyclebin__类
+        fliterSpecialTable(allTabInfo);
         return allTabInfo;
     }
 
@@ -2058,6 +2111,14 @@ public class SqoopProducter {
                 "or a.TABLE_SCHEMA  = 'english_ebook'\n" +
                 "or a.TABLE_SCHEMA  = 'english_gold';";
 
+//        String sql_english_rank_ebook_gold = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+//                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+//                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+//                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+//                "WHERE  a.TABLE_SCHEMA  = '" + "english_rank" + "' \n" +
+//                "or a.TABLE_SCHEMA  = 'english_ebook'\n" +
+//                "or a.TABLE_SCHEMA  = 'english_gold';";
+
         String sql_english_game_etp = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
                 "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
@@ -2134,33 +2195,33 @@ public class SqoopProducter {
                 "jdbc:mysql://drdsbgga1s358k06.drds.aliyuncs.com:3306/",
                 "tidb_ro",
                 "274AHguQQfgUS98gVseu",
-                sql_english_read
+                sql_english_oral
         );
         DataBaseInfo english_rank_ebook_gold = new DataBaseInfo(
                 "jdbc:mysql://drdsbggasv1o4o86.drds.aliyuncs.com:3306/",
                 "tidb_ro",
                 "274AHguQQfgUS98gVseu",
-                sql_english_read
+                sql_english_rank_ebook_gold
         );
         DataBaseInfo english_game_etp = new DataBaseInfo(
                 "jdbc:mysql://drdsbgga17222szn.drds.aliyuncs.com:3306/",
                 "tidb_ro",
                 "274AHguQQfgUS98gVseu",
-                sql_english_read
+                sql_english_game_etp
         );
 
         DataBaseInfo english_basedata_agent_book_parent_skill = new DataBaseInfo(
                 "jdbc:mysql://drdsbggasxc095l0.drds.aliyuncs.com:3306/",
                 "tidb_ro",
                 "274AHguQQfgUS98gVseu",
-                sql_english_read
+                sql_english_basedata_agent_book_parent_skill
         );
 
         DataBaseInfo english_student_teache_video = new DataBaseInfo(
                 "jdbc:mysql://drdsbgga581301b3.drds.aliyuncs.com:3306/",
                 "tidb_ro",
                 "274AHguQQfgUS98gVseu",
-                sql_english_read
+                sql_english_student_teache_video
         );
 
 
@@ -2214,39 +2275,81 @@ public class SqoopProducter {
                 sqldim
         );
 
+//        LinkedHashSet<TableInfo> allTabInfo6 = extractTabInfoSpecifyDatabase(english_student_teache_video, sql_english_student_teache_video,"use english_teacher;");
+//        everyTableSqoopShell_SpecifiedField(allTabInfo6, english_student_teache_video);
+//        everyTableOdsShell(allTabInfo6);
 
         LinkedHashSet<TableInfo> allTabInfo1 = extractTabInfo2(english_read, sql_english_read);
         everyTableSqoopShell_SpecifiedField(allTabInfo1, english_read);
         LinkedHashSet<TableInfo> allTabInfo2 = extractTabInfo2(english_oral, sql_english_oral);
         everyTableSqoopShell_SpecifiedField(allTabInfo2, english_oral);
-        LinkedHashSet<TableInfo> allTabInfo3 = extractTabInfo2(english_game_etp, sql_english_game_etp);
-        everyTableSqoopShell_SpecifiedField(allTabInfo3, english_game_etp);
-        LinkedHashSet<TableInfo> allTabInfo4 = extractTabInfo2(english_basedata_agent_book_parent_skill, sql_english_basedata_agent_book_parent_skill);
-        everyTableSqoopShell_SpecifiedField(allTabInfo4, english_basedata_agent_book_parent_skill);
-        LinkedHashSet<TableInfo> allTabInfo5 = extractTabInfo2(english_rank_ebook_gold, sql_english_rank_ebook_gold);
-        everyTableSqoopShell_SpecifiedField(allTabInfo5, english_rank_ebook_gold);
-        LinkedHashSet<TableInfo> allTabInfo6 = extractTabInfo2(english_student_teache_video, sql_english_student_teache_video);
-        everyTableSqoopShell_SpecifiedField(allTabInfo6, english_student_teache_video);
+
+        LinkedHashSet<TableInfo> allTabInfo3_1 = extractTabInfoSpecifyDatabase(english_game_etp, sql_english_game_etp, "use english_game;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo3_1, english_game_etp);
+        LinkedHashSet<TableInfo> allTabInfo3_2 = extractTabInfoSpecifyDatabase(english_game_etp, sql_english_game_etp, "use english_etp;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo3_2, english_game_etp);
+
+        LinkedHashSet<TableInfo> allTabInfo4_1 = extractTabInfoSpecifyDatabase(english_basedata_agent_book_parent_skill, sql_english_basedata_agent_book_parent_skill, "use english_basedata;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo4_1, english_basedata_agent_book_parent_skill);
+        LinkedHashSet<TableInfo> allTabInfo4_2 = extractTabInfoSpecifyDatabase(english_basedata_agent_book_parent_skill, sql_english_basedata_agent_book_parent_skill, "use english_agent;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo4_2, english_basedata_agent_book_parent_skill);
+        LinkedHashSet<TableInfo> allTabInfo4_3 = extractTabInfoSpecifyDatabase(english_basedata_agent_book_parent_skill, sql_english_basedata_agent_book_parent_skill, "use english_book;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo4_3, english_basedata_agent_book_parent_skill);
+        LinkedHashSet<TableInfo> allTabInfo4_4 = extractTabInfoSpecifyDatabase(english_basedata_agent_book_parent_skill, sql_english_basedata_agent_book_parent_skill, "use english_parent;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo4_4, english_basedata_agent_book_parent_skill);
+        LinkedHashSet<TableInfo> allTabInfo4_5 = extractTabInfoSpecifyDatabase(english_basedata_agent_book_parent_skill, sql_english_basedata_agent_book_parent_skill, "use english_skill;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo4_5, english_basedata_agent_book_parent_skill);
+
+        LinkedHashSet<TableInfo> allTabInfo5_1 = extractTabInfoSpecifyDatabase(english_rank_ebook_gold, sql_english_rank_ebook_gold, "use english_rank;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo5_1, english_rank_ebook_gold);
+        LinkedHashSet<TableInfo> allTabInfo5_2 = extractTabInfoSpecifyDatabase(english_rank_ebook_gold, sql_english_rank_ebook_gold, "use english_ebook;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo5_2, english_rank_ebook_gold);
+        LinkedHashSet<TableInfo> allTabInfo5_3 = extractTabInfoSpecifyDatabase(english_rank_ebook_gold, sql_english_rank_ebook_gold, "use english_gold;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo5_3, english_rank_ebook_gold);
+
+        LinkedHashSet<TableInfo> allTabInfo6_1 = extractTabInfoSpecifyDatabase(english_student_teache_video, sql_english_student_teache_video, "use english_student;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo6_1, english_student_teache_video);
+        LinkedHashSet<TableInfo> allTabInfo6_2 = extractTabInfoSpecifyDatabase(english_student_teache_video, sql_english_student_teache_video, "use english_teacher;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo6_2, english_student_teache_video);
+        LinkedHashSet<TableInfo> allTabInfo6_3 = extractTabInfoSpecifyDatabase(english_student_teache_video, sql_english_student_teache_video, "use english_video;");
+        everyTableSqoopShell_SpecifiedField(allTabInfo6_3, english_student_teache_video);
 
         everyTableOdsShell(allTabInfo1);
         everyTableOdsShell(allTabInfo2);
-        everyTableOdsShell(allTabInfo3);
-        everyTableOdsShell(allTabInfo4);
-        everyTableOdsShell(allTabInfo5);
-        everyTableOdsShell(allTabInfo6);
+        everyTableOdsShell(allTabInfo3_1);
+        everyTableOdsShell(allTabInfo3_2);
+        everyTableOdsShell(allTabInfo4_1);
+        everyTableOdsShell(allTabInfo4_2);
+        everyTableOdsShell(allTabInfo4_3);
+        everyTableOdsShell(allTabInfo4_4);
+        everyTableOdsShell(allTabInfo4_5);
+        everyTableOdsShell(allTabInfo5_1);
+        everyTableOdsShell(allTabInfo5_2);
+        everyTableOdsShell(allTabInfo5_3);
+        everyTableOdsShell(allTabInfo6_1);
+        everyTableOdsShell(allTabInfo6_2);
+        everyTableOdsShell(allTabInfo6_3);
 
 
         LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
         allTabInfo.addAll(allTabInfo1);
         allTabInfo.addAll(allTabInfo2);
-        allTabInfo.addAll(allTabInfo3);
-        allTabInfo.addAll(allTabInfo4);
-        allTabInfo.addAll(allTabInfo5);
-        allTabInfo.addAll(allTabInfo6);
+        allTabInfo.addAll(allTabInfo3_1);
+        allTabInfo.addAll(allTabInfo3_2);
+        allTabInfo.addAll(allTabInfo4_1);
+        allTabInfo.addAll(allTabInfo4_2);
+        allTabInfo.addAll(allTabInfo4_3);
+        allTabInfo.addAll(allTabInfo4_4);
+        allTabInfo.addAll(allTabInfo4_5);
+        allTabInfo.addAll(allTabInfo5_1);
+        allTabInfo.addAll(allTabInfo5_2);
+        allTabInfo.addAll(allTabInfo5_3);
+        allTabInfo.addAll(allTabInfo6_1);
+        allTabInfo.addAll(allTabInfo6_2);
+        allTabInfo.addAll(allTabInfo6_3);
 
         hiveCreateTable2(allTabInfo);
         azkabanOdsFlow(allTabInfo);
-//        everyTableOdsShell(allTabInfo);
     }
 
 
@@ -2482,6 +2585,10 @@ public class SqoopProducter {
     }
 
 
+    public static void fliterSpecialTable(LinkedHashSet<TableInfo> alltables) {
+        alltables.removeIf(s -> s.getTableName().equals("__drds__system__recyclebin__"));
+    }
+
     public static void main(String[] args) throws IOException, SQLException, InterruptedException {
 //        chineseRds_to_Tidb();
 //        newChi();
@@ -2491,5 +2598,25 @@ public class SqoopProducter {
 //        chineseRds_to_Tidb();
 
         prodOds();
+
+//        String sql_english_student_teache_video = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+//                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+//                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+//                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+//                "WHERE  a.TABLE_SCHEMA  = '" + "english_student" + "' \n" +
+//                "or a.TABLE_SCHEMA  = 'english_teacher'\n" +
+//                "or a.TABLE_SCHEMA  = 'english_video';";
+//
+//
+//        DataBaseInfo english_student_teache_video = new DataBaseInfo(
+//                "jdbc:mysql://drdsbgga581301b3.drds.aliyuncs.com:3306/",
+//                "tidb_ro",
+//                "274AHguQQfgUS98gVseu",
+//                sql_english_student_teache_video
+//        );
+//
+//
+//        extractTabInfoSpecifyDatabase(english_student_teache_video, sql_english_student_teache_video, "use english_teacher");
+
     }
 }
