@@ -41,12 +41,14 @@ public class SqoopProducter {
     //    public static final String PREFIX = "ods";
     public static final String PREFIX = "eng";
     //    public static final String LAYERPREFIX = "ods_";
-//    public static final String LAYERPREFIX = "ods_";
     public static final String LAYERPREFIX = "ods_";
+//    public static final String LAYERPREFIX = "";
     //    public static final String ODSSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_ods";
     public static final String ODSSHELLLOCATION = "/root/bin/azkabanshell/hdfs_to_ods";
     public static final String DIMSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_dim";
     public static final String DWDSHELLLOCATION = "/root/bin/azkabantest/ods_to_dwd";
+    public static final String DWDINITSQOOPSHELLLOCATION = "/root/bin/azkabanshell/dwd_oltp_to_hdfs";
+    public static final String DWDINITHIVESHELLLOCATION = "/root/bin/azkabanshell/dwd_hdfs_to_hive";
     public static final String DWMSHELLLOCATION = "/root/bin/azkabantest/dwd_to_dwm";
     //    public static final String SQOOPSHELLLOCATION = "/root/bin/azkabantest/oltp_to_hdfs";
     public static final String SQOOPSHELLLOCATION = "/root/bin/azkabanshell/oltp_to_hdfs";
@@ -339,6 +341,33 @@ public class SqoopProducter {
     }
 
 
+    static void everyTableDwdShell(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        for (TableInfo tableInfo : allTabInfo) {
+            String dirLocation = "./dwd_hdfs_to_hive/" + tableInfo.getDatabaseName();
+            File f = new File(dirLocation);
+            if (!f.exists()) {
+                f.mkdirs();
+            }
+            BufferedWriter out = new BufferedWriter(new FileWriter("./dwd_hdfs_to_hive/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh"));
+            StringBuilder stringBuilder = new StringBuilder();
+            out.write("#!/bin/bash\n\n" +
+                    "if [ -n \"$1\" ] ;then\n" +
+                    "    do_date=$1\n" +
+                    "else\n" +
+                    "    do_date=`date -d '-1 day' +%F`\n" +
+                    "fi\n\n");
+
+            stringBuilder.append("hive -n root -p root -e \"load data inpath '/bigdata/origin_data/db/dwd/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/' OVERWRITE into table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + " \"; \n\n");
+            //azkaban报错用
+            exceptionExitLoadData(stringBuilder, tableInfo);
+            out.write(stringBuilder.toString());
+            out.write("\n\n\n");
+            out.close();
+        }
+
+    }
+
+
     //dim第一次的load data
     static void everyTableDimShell(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
         for (TableInfo tableInfo : allTabInfo) {
@@ -425,6 +454,7 @@ public class SqoopProducter {
     }
 
 
+    //sqoop加入--column列指定顺序
     static void everyTableSqoopShell_SpecifiedField(LinkedHashSet<TableInfo> allTabInfo, DataBaseInfo dataBaseInfo) throws IOException {
 
         for (TableInfo tableInfo : allTabInfo) {
@@ -443,12 +473,59 @@ public class SqoopProducter {
                     "fi\n\n");
             stringBuilder.append(
                     "sqoop import \\\n" +
+                            "-D org.apache.sqoop.splitter.allow_text_splitter=true \\\n" +
                             "--connect " + dataBaseInfo.getUrl() + tableInfo.getDatabaseName() + " \\\n" +
                             "--username " + dataBaseInfo.getUser() + " \\\n" +
                             "--password " + dataBaseInfo.getPassword() + " \\\n" +
                             odsSyncStrategy_SpecifiedField(tableInfo) +
 //                            "--table " + tableInfo.getTableName() + " \\\n" +
                             "--target-dir /bigdata/origin_data/db/ods/" + LAYERPREFIX + standardization(tableInfo.getDatabaseName()) + "/" + tableInfo.getTableName() + "/" + "$do_date" + " \\\n" +
+                            "--delete-target-dir \\\n" +
+                            "--fields-terminated-by '\\001' \\\n" +
+                            "--num-mappers 4 \\\n" +
+                            "--split-by " + tableInfo.getTableFields().getFirst().getFieldName() + " \\\n" +
+                            "--null-string '\\\\N' \\\n" +
+                            "--null-non-string '\\\\N' \n\n"
+            );
+            exceptionExitSqoop(stringBuilder, tableInfo);
+//            stringBuilder.append("\n");
+//            stringBuilder.append("hive -e \"load data inpath '/user/origin_data/db/ods/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + "/" + "$do_date'" + " OVERWRITE into table " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + " partition(dt='$do_date')\"; \n\n");
+            //azkaban报错用
+//            exceptionExit(stringBuilder, tableInfo);
+            out.write(stringBuilder.toString());
+            out.write("\n\n\n");
+            out.close();
+        }
+
+    }
+
+
+    //dwd 迁移数据专用  为了还原分区所以去掉指定dt日期部分
+    static void everyTableSqoopShell_SpecifiedField_dwd(LinkedHashSet<TableInfo> allTabInfo, DataBaseInfo dataBaseInfo) throws IOException {
+
+        for (TableInfo tableInfo : allTabInfo) {
+            String dirLocation = "./dwd_oltp_to_hdfs/" + standardization(tableInfo.getDatabaseName());
+            File f = new File(dirLocation);
+            if (!f.exists()) {
+                f.mkdirs();
+            }
+            BufferedWriter out = new BufferedWriter(new FileWriter("./dwd_oltp_to_hdfs/" + standardization(tableInfo.getDatabaseName()) + "/" + tableInfo.getTableName() + ".sh"));
+            StringBuilder stringBuilder = new StringBuilder();
+            out.write("#!/bin/bash\n\n" +
+                    "if [ -n \"$1\" ] ;then\n" +
+                    "    do_date=$1\n" +
+                    "else\n" +
+                    "    do_date=`date -d '-1 day' +%F`\n" +
+                    "fi\n\n");
+            stringBuilder.append(
+                    "sqoop import \\\n" +
+                            "-D org.apache.sqoop.splitter.allow_text_splitter=true \\\n" +
+                            "--connect " + dataBaseInfo.getUrl() + tableInfo.getDatabaseName() + " \\\n" +
+                            "--username " + dataBaseInfo.getUser() + " \\\n" +
+                            "--password " + dataBaseInfo.getPassword() + " \\\n" +
+                            dwdSyncStrategy_SpecifiedField(tableInfo) +
+//                            "--table " + tableInfo.getTableName() + " \\\n" +
+                            "--target-dir /bigdata/origin_data/db/dwd/" + standardization(tableInfo.getDatabaseName()) + "/" + tableInfo.getTableName() + "/ \\\n" +
                             "--delete-target-dir \\\n" +
                             "--fields-terminated-by '\\001' \\\n" +
                             "--num-mappers 4 \\\n" +
@@ -579,6 +656,88 @@ public class SqoopProducter {
             return stringBuilder.toString();
         }
     }
+
+
+    //dwd指定列,换列的顺序
+    private static String dwdSyncStrategy_SpecifiedField(TableInfo tableInfo) {
+
+//        if (!INCREMENTTABLE.contains(tableInfo.getDatabaseName() + "." + tableInfo.getTableName())) {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("--table " + tableInfo.getTableName() + " \\\n");
+        stringBuilder.append("--columns ");
+
+
+        boolean is_add_date_value = false;
+        int size = tableInfo.getTableFields().size();
+        LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+        for (int i = 0; i < size; i++) {
+            FieldInfo fieldInfo = tableFields.get(i);
+//                if (i + 2 == size && "date_value".equals(tableFields.get(i + 1).getFieldName())) {
+//                    stringBuilder.append(
+//                            "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+//                    );
+//                    stringBuilder.append("\n)\n");
+//                    break;
+//                }
+            //最后一个若是date_value则也跳过
+            if ("date_value".equals(fieldInfo.getFieldName()) && i + 1 != size) {
+                is_add_date_value = true;
+                continue;
+            }
+            stringBuilder.append(fieldInfo.getFieldName());
+//                stringBuilder.append(
+//                        "`" + fieldInfo.getFieldName() + "`" + " " + fieldMap(fieldInfo.getDataType()) + " COMMENT " + "\"" + fieldInfo.getColumnComment() + "\" "
+//                );
+            //最后一个不加逗号
+//                if (tableInfo.getTableFields().getLast() != fieldInfo) {
+//                    stringBuilder.append(" ,\n");
+//                } else {
+//                    stringBuilder.append("\n)\n");
+//                }
+            if (i + 1 != size) {
+                stringBuilder.append(",");
+            }
+        }
+        if (is_add_date_value) {
+            stringBuilder.append(",date_value");
+        }
+
+
+//            LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+//            int size = tableFields.size();
+//            for (FieldInfo fieldInfo : tableFields) {
+//                size--;
+//                stringBuilder.append(fieldInfo.getFieldName());
+//                if (size != 0) {
+//                    stringBuilder.append(",");
+//                }
+//            }
+        stringBuilder.append(" \\\n");
+        return stringBuilder.toString();
+//        }
+//        else {
+//            StringBuilder stringBuilder = new StringBuilder();
+//            LinkedList<FieldInfo> tableFields = tableInfo.getTableFields();
+//            stringBuilder.append("--query \"select\n");
+//            int size = tableFields.size();
+//            for (FieldInfo fieldInfo : tableFields) {
+//                size--;
+//                stringBuilder.append(fieldInfo.getFieldName());
+//                //比计数慢，还是快
+////                if(tableFields.getLast().equals(fieldInfo)){
+//                if (size != 0) {
+//                    stringBuilder.append(",");
+//                }
+//                stringBuilder.append("\n");
+//            }
+//            stringBuilder.append("from " + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n"
+//                    + "where date_format(createTime,'%Y-%m-%d') = \'$do_date\'\n"
+//                    + "and \\$CONDITIONS\" \\\n"
+//            );
+//            return stringBuilder.toString();
+//        }
+    }
+
 
     //    static void sqoopProducterFun(LinkedHashMap<String, LinkedList<FieldInfo>> allTabInfo) throws IOException {
 //
@@ -1019,7 +1178,7 @@ public class SqoopProducter {
         for (TableInfo tableInfo : allTabInfo) {
 
             StringBuilder stringBuilder = new StringBuilder();
-            stringBuilder.append("hive -e '");
+            stringBuilder.append("hive -n root -p root -e '");
             stringBuilder.append(
                     "create database if not exists " + tableInfo.getDatabaseName() + ";" + "\n");
 //            exceptionExit(stringBuilder, tableInfo);
@@ -1379,6 +1538,42 @@ public class SqoopProducter {
                     "      - " + "ods." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
                     "    config:\n" +
                     "      command: sh " + DWDSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+        }
+
+        out.write(stringBuilder.toString());
+        out.write("\n\n\n");
+        out.close();
+    }
+
+
+    static void azkabanDwdInitFlow(LinkedHashSet<TableInfo> allTabInfo) throws IOException {
+        //创建所需目录
+        String dirLocation = "./dwd-init-azkaban-schedule/";
+        File f = new File(dirLocation);
+        if (!f.exists()) {
+            f.mkdirs();
+        }
+        //生成azkaban的执行工程
+        BufferedWriter out2 = new BufferedWriter(new FileWriter(dirLocation + "dwd-init_schedule.project"));
+        out2.write("azkaban-flow-version: 2.0");
+
+        out2.close();
+        BufferedWriter out = new BufferedWriter(new FileWriter(dirLocation + "dwd-init_schedule.flow"));
+        out.write("nodes:\n");
+
+        StringBuilder stringBuilder = new StringBuilder();
+        for (TableInfo tableInfo : allTabInfo) {
+            stringBuilder.append("  - name: sqoopdwd." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    type: command\n" +
+                    "    config:\n" +
+                    "      command: sh " + DWDINITSQOOPSHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
+
+            stringBuilder.append("  - name: hivedwd." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    type: command\n" +
+                    "    dependsOn:\n" +
+                    "      - " + "sqoopdwd." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    config:\n" +
+                    "      command: sh " + DWDINITHIVESHELLLOCATION + "/" + tableInfo.getDatabaseName() + "/" + tableInfo.getTableName() + ".sh\n\n");
         }
 
         out.write(stringBuilder.toString());
@@ -2047,45 +2242,45 @@ public class SqoopProducter {
 
 
     static void init() {
-//        INCREMENTTABLE.add("english_game.gm_player_property_change");
-//        INCREMENTTABLE.add("english_read.rd_day_total_read");
-//        INCREMENTTABLE.add("chinese_power_value.word_study_stat");
-//        INCREMENTTABLE.add("english_ebook.ek_student_first_ebook");
-//        INCREMENTTABLE.add("english_read.rd_day_read");
-//        INCREMENTTABLE.add("english_video.hs_speak_student_answer");
-//        INCREMENTTABLE.add("chinese_article.article_sentence_info");
-//        INCREMENTTABLE.add("english_read.rd_through_book");
-//        INCREMENTTABLE.add("english_parent.pt_heart_talk");
-//        INCREMENTTABLE.add("english_read.rd_student_interrupt");
-//        INCREMENTTABLE.add("english_gold.gd_gold_bill");
-//        INCREMENTTABLE.add("english_game.gm_player_task");
-//        INCREMENTTABLE.add("english_video.vd_play_film_log");
-//        INCREMENTTABLE.add("english_oral.ol_day_oral");
-//        INCREMENTTABLE.add("chinese_article.read_article_info");
-//        INCREMENTTABLE.add("chinese_article.read_article_log");
-//        INCREMENTTABLE.add("english_oral.ol_day_oral_bak");
-//        INCREMENTTABLE.add("english_parent.pt_read_activity_sign_in");
-//        INCREMENTTABLE.add("english_student.st_student_view");
-//        INCREMENTTABLE.add("english_ebook.ek_student_ebook");
-//        INCREMENTTABLE.add("english_oral.ol_student_review");
-//        INCREMENTTABLE.add("english_student.st_student_report");
-//        INCREMENTTABLE.add("english_oral.ol_student_review_bak");
-//        INCREMENTTABLE.add("english_parent.pt_upload_sign_pic");
-//        INCREMENTTABLE.add("chinese_power_value.user_word_study_stat");
-//        INCREMENTTABLE.add("chinese_introduction.search_history");
-//        INCREMENTTABLE.add("english_gold.gd_gold_reward_detail");
-//        INCREMENTTABLE.add("point.point_etp_race_login_sign");
-//        INCREMENTTABLE.add("english_teacher.tc_student_task");
-////        INCREMENTTABLE.add("kk_marketer.thirdpartymsglog");//没有createtime的字段
-//        INCREMENTTABLE.add("chinese_introduction.browsing_history_log");
-//        INCREMENTTABLE.add("chinese_introduction.user_behavior_log");
-//        INCREMENTTABLE.add("english_video.vd_play_film");
-//        INCREMENTTABLE.add("english_read.rd_student_answer_exercise");
-//        INCREMENTTABLE.add("chinese_user_data.rank_user_source_increase_log");
-//        INCREMENTTABLE.add("english_read.rd_student_favorite_book");
-//        INCREMENTTABLE.add("chinese_power_value.day_study_data_stat");
-//        INCREMENTTABLE.add("chinese_power_value.study_milestone_evaluate_stat");
-//        INCREMENTTABLE.add("english_parent.pt_parent_task");
+        INCREMENTTABLE.add("english_game.gm_player_property_change");
+        INCREMENTTABLE.add("english_read.rd_day_total_read");
+        INCREMENTTABLE.add("chinese_power_value.word_study_stat");
+        INCREMENTTABLE.add("english_ebook.ek_student_first_ebook");
+        INCREMENTTABLE.add("english_read.rd_day_read");
+        INCREMENTTABLE.add("english_video.hs_speak_student_answer");
+        INCREMENTTABLE.add("chinese_article.article_sentence_info");
+        INCREMENTTABLE.add("english_read.rd_through_book");
+        INCREMENTTABLE.add("english_parent.pt_heart_talk");
+        INCREMENTTABLE.add("english_read.rd_student_interrupt");
+        INCREMENTTABLE.add("english_gold.gd_gold_bill");
+        INCREMENTTABLE.add("english_game.gm_player_task");
+        INCREMENTTABLE.add("english_video.vd_play_film_log");
+        INCREMENTTABLE.add("english_oral.ol_day_oral");
+        INCREMENTTABLE.add("chinese_article.read_article_info");
+        INCREMENTTABLE.add("chinese_article.read_article_log");
+        INCREMENTTABLE.add("english_oral.ol_day_oral_bak");
+        INCREMENTTABLE.add("english_parent.pt_read_activity_sign_in");
+        INCREMENTTABLE.add("english_student.st_student_view");
+        INCREMENTTABLE.add("english_ebook.ek_student_ebook");
+        INCREMENTTABLE.add("english_oral.ol_student_review");
+        INCREMENTTABLE.add("english_student.st_student_report");
+        INCREMENTTABLE.add("english_oral.ol_student_review_bak");
+        INCREMENTTABLE.add("english_parent.pt_upload_sign_pic");
+        INCREMENTTABLE.add("chinese_power_value.user_word_study_stat");
+        INCREMENTTABLE.add("chinese_introduction.search_history");
+        INCREMENTTABLE.add("english_gold.gd_gold_reward_detail");
+        INCREMENTTABLE.add("point.point_etp_race_login_sign");
+        INCREMENTTABLE.add("english_teacher.tc_student_task");
+//        INCREMENTTABLE.add("kk_marketer.thirdpartymsglog");//没有createtime的字段
+        INCREMENTTABLE.add("chinese_introduction.browsing_history_log");
+        INCREMENTTABLE.add("chinese_introduction.user_behavior_log");
+        INCREMENTTABLE.add("english_video.vd_play_film");
+        INCREMENTTABLE.add("english_read.rd_student_answer_exercise");
+        INCREMENTTABLE.add("chinese_user_data.rank_user_source_increase_log");
+        INCREMENTTABLE.add("english_read.rd_student_favorite_book");
+        INCREMENTTABLE.add("chinese_power_value.day_study_data_stat");
+        INCREMENTTABLE.add("chinese_power_value.study_milestone_evaluate_stat");
+        INCREMENTTABLE.add("english_parent.pt_parent_task");
     }
 
     static void prodOds() throws SQLException, IOException {
@@ -2151,6 +2346,13 @@ public class SqoopProducter {
                 "WHERE  a.TABLE_SCHEMA LIKE '" + "kk" + "%' \n" +
                 "or " + "a.TABLE_SCHEMA = 'ientrepreneurship_dev' ;";
 
+        String sql_prod_kk = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "kk" + "%' \n" +
+                "or " + "a.TABLE_SCHEMA = 'ientrepreneurship' ;";
+
         String sqlchi = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment,\n" +
                 "row_number() over(PARTITION BY a.`TABLE_SCHEMA`,a.`TABLE_NAME` ORDER BY a.`ORDINAL_POSITION` ) AS num\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
@@ -2160,6 +2362,13 @@ public class SqoopProducter {
                 "AND a.`TABLE_SCHEMA`!= 'chinese-user-login' \n" +
                 "AND a.`TABLE_SCHEMA`!= 'chinese-crawl' ;";
 
+        //线上为rds 无需进行排序
+        String sql_prod_old_chi = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+//                ",row_number() over(PARTITION BY a.`TABLE_SCHEMA`,a.`TABLE_NAME` ORDER BY a.`ORDINAL_POSITION` ) AS num\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "chi" + "%' ;";
 
         String sqldim = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
@@ -2251,7 +2460,7 @@ public class SqoopProducter {
                 "jdbc:mysql://rm-2zeo7cx08119h573m.mysql.rds.aliyuncs.com:3306/",
                 "tidb_ro",
                 "274AHguQQfgUS98gVseu",
-                sqlkk
+                sql_prod_kk
         );
 
         DataBaseInfo chi = new DataBaseInfo(
@@ -2265,7 +2474,7 @@ public class SqoopProducter {
                 "jdbc:mysql://rm-2ze50a5xi3885jkkc.mysql.rds.aliyuncs.com:3306/",
                 "tidb_root",
                 "PRb0K_oIV6cIPj2ExsRk",
-                sqlchi
+                sql_prod_old_chi
         );
 
         DataBaseInfo dim = new DataBaseInfo(
@@ -2314,6 +2523,12 @@ public class SqoopProducter {
         LinkedHashSet<TableInfo> allTabInfo6_3 = extractTabInfoSpecifyDatabase(english_student_teache_video, sql_english_student_teache_video, "use english_video;");
         everyTableSqoopShell_SpecifiedField(allTabInfo6_3, english_student_teache_video);
 
+        LinkedHashSet<TableInfo> allTabInfo7 = extractTabInfo2(chiOldProd, sql_prod_old_chi);
+        everyTableSqoopShell_SpecifiedField(allTabInfo7, chiOldProd);
+
+        LinkedHashSet<TableInfo> allTabInfo8 = extractTabInfo2(kkProd, sql_prod_kk);
+        everyTableSqoopShell_SpecifiedField(allTabInfo8, kkProd);
+
         everyTableOdsShell(allTabInfo1);
         everyTableOdsShell(allTabInfo2);
         everyTableOdsShell(allTabInfo3_1);
@@ -2329,6 +2544,9 @@ public class SqoopProducter {
         everyTableOdsShell(allTabInfo6_1);
         everyTableOdsShell(allTabInfo6_2);
         everyTableOdsShell(allTabInfo6_3);
+
+        everyTableOdsShell(allTabInfo7);
+        everyTableOdsShell(allTabInfo8);
 
 
         LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
@@ -2347,6 +2565,9 @@ public class SqoopProducter {
         allTabInfo.addAll(allTabInfo6_1);
         allTabInfo.addAll(allTabInfo6_2);
         allTabInfo.addAll(allTabInfo6_3);
+
+        allTabInfo.addAll(allTabInfo7);
+        allTabInfo.addAll(allTabInfo8);
 
         hiveCreateTable2(allTabInfo);
         azkabanOdsFlow(allTabInfo);
@@ -2589,6 +2810,36 @@ public class SqoopProducter {
         alltables.removeIf(s -> s.getTableName().equals("__drds__system__recyclebin__"));
     }
 
+
+    public static void prodDwd() throws SQLException, IOException {
+
+        String sqldwd = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "dwd" + "%' " +
+                "and a.TABLE_NAME like 'dwd%' ;";
+
+
+        DataBaseInfo dwd = new DataBaseInfo(
+                "jdbc:mysql://10.16.40.154:3306/",
+                "zhuangshuai",
+                "0UtLSBLnYajUutJh",
+                sqldwd
+        );
+
+        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(dwd, sqldwd);
+        dwdCreateTable(allTabInfo);
+
+        everyTableSqoopShell_SpecifiedField_dwd(allTabInfo, dwd);
+
+
+        everyTableDwdShell(allTabInfo);
+
+        azkabanDwdInitFlow(allTabInfo);
+
+    }
+
     public static void main(String[] args) throws IOException, SQLException, InterruptedException {
 //        chineseRds_to_Tidb();
 //        newChi();
@@ -2597,6 +2848,8 @@ public class SqoopProducter {
 //        dwn();
 //        chineseRds_to_Tidb();
 
+        init();
+//        prodDwd();
         prodOds();
 
 //        String sql_english_student_teache_video = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
