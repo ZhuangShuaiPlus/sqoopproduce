@@ -7,7 +7,9 @@ import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.sql.*;
-import java.util.*;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
 
 //shuai
 public class SqoopProducter {
@@ -44,7 +46,7 @@ public class SqoopProducter {
     public static final String LAYERPREFIX = "ods_";
     //    public static final String LAYERPREFIX = "";
     //    public static final String ODSSHELLLOCATION = "/root/bin/azkabantest/hdfs_to_ods";
-    public static final String ODSSHELLLOCATION = "${prefixpath}/hdfs_to_ods";
+    public static final String ODSSHELLLOCATION = "${prefixpath}/dev_hdfs_to_ods";
     public static final String DIMSHELLLOCATION = "${prefixpath}/hdfs_to_dim";
     public static final String DWDSHELLLOCATION = "${prefixpath}/ods_to_dwd";
     public static final String DWDINITSQOOPSHELLLOCATION = "${prefixpath}/dwd_oltp_to_hdfs";
@@ -53,7 +55,7 @@ public class SqoopProducter {
     public static final String DWMINITHIVESHELLLOCATION = "/root/bin/azkabanshell/dwm_hdfs_to_hive";
     public static final String DWMSHELLLOCATION = "${prefixpath}/dwd_to_dwm";
     //    public static final String SQOOPSHELLLOCATION = "/root/bin/azkabantest/oltp_to_hdfs";
-    public static final String SQOOPSHELLLOCATION = "${prefixpath}/oltp_to_hdfs";
+    public static final String SQOOPSHELLLOCATION = "${prefixpath}/dev_oltp_to_hdfs";
     public static final String DIMOLTPSHELLLOCATION = "${prefixpath}/dim_to_hdfs";
 
     //dws 的各层脚本
@@ -242,6 +244,149 @@ public class SqoopProducter {
             fieldInfo.setDataType(cluType);
             fieldInfo.setColumnComment(columnComment);
             fields.add(fieldInfo);
+        }
+        dbAndTable.setTableFields(fields);
+        allTabInfo.add(dbAndTable);
+        //移除__drds__system__recyclebin__类
+        fliterSpecialTable(allTabInfo);
+        return allTabInfo;
+    }
+
+
+    //与extractTabInfo的传参不同，一样
+    static LinkedHashSet<TableInfo> extractTabInfo2Sharding2(DataBaseInfo dataBaseInfo, String sql) throws SQLException {
+        //1.加载驱动程序
+//        Class.forName("com.mysql.jdbc.Driver");
+        Connection conn = DriverManager.getConnection(dataBaseInfo.getUrl(), dataBaseInfo.getUser(), dataBaseInfo.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql);
+        TableInfo previousTable = null;
+        LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
+        LinkedList<FieldInfo> fields = null;
+        String dbName = null;
+        String tabName = null;
+        String cluName = null;
+        String cluType = null;
+        String columnComment = null;
+        String tblComment = null;
+        TableInfo dbAndTable = null;
+        while (rs.next()) {
+            dbName = rs.getString("dbName");
+            tabName = rs.getString("tabName");
+            cluName = rs.getString("cluName");
+            cluType = rs.getString("cluType");
+            columnComment = rs.getString("columnComment");
+            tblComment = rs.getString("tblComment");
+            dbAndTable = new TableInfo(dbName, tabName, tblComment);
+
+            if (previousTable == null || !previousTable.equals(dbAndTable)) {
+                if (previousTable != null) {
+                    previousTable.setTableFields(fields);
+
+                    //分库添加
+                    String sqlSharding = "SHOW TOPOLOGY FROM  " + previousTable.getDatabaseName() + "." + previousTable.getTableName();
+                    System.out.println(sqlSharding);
+                    Statement stmt2 = conn.createStatement();
+                    ResultSet resultSet2 = stmt2.executeQuery(sqlSharding);
+//                    dbAndTable = new TableInfo(dbName, tabName, tblComment);
+
+                    LinkedHashSet<TableInfo> allTabInfoInner = new LinkedHashSet<TableInfo>();
+                    while (resultSet2.next()) {
+                        String group_name = resultSet2.getString("GROUP_NAME");
+                        String table_name = resultSet2.getString("TABLE_NAME");
+                        allTabInfoInner.add(new TableInfo(group_name, table_name, previousTable.getTableComment(), previousTable.getTableFields()));
+                    }
+                    allTabInfo.addAll(allTabInfoInner);
+                    stmt2.close();
+//                    allTabInfo.add(previousTable);
+                }
+                fields = new LinkedList<FieldInfo>();
+                previousTable = dbAndTable;
+            }
+
+            FieldInfo fieldInfo = new FieldInfo();
+            fieldInfo.setFieldName(cluName);
+            fieldInfo.setDataType(cluType);
+            fieldInfo.setColumnComment(columnComment);
+            fields.add(fieldInfo);
+        }
+        dbAndTable.setTableFields(fields);
+
+        //分库添加
+        String sqlSharding = "SHOW TOPOLOGY FROM  " + dbAndTable.getDatabaseName() + "." + dbAndTable.getTableName();
+        System.out.println(sqlSharding);
+        Statement stmt3 = conn.createStatement();
+        ResultSet resultSet3 = stmt3.executeQuery(sqlSharding);
+//                    dbAndTable = new TableInfo(dbName, tabName, tblComment);
+
+        LinkedHashSet<TableInfo> allTabInfoInner2 = new LinkedHashSet<TableInfo>();
+        while (resultSet3.next()) {
+            String group_name = resultSet3.getString("GROUP_NAME");
+            String table_name = resultSet3.getString("TABLE_NAME");
+            allTabInfoInner2.add(new TableInfo(group_name, table_name, dbAndTable.getTableComment(), dbAndTable.getTableFields()));
+        }
+        allTabInfo.addAll(allTabInfoInner2);
+        stmt3.close();
+
+//        allTabInfo.add(dbAndTable);
+        //移除__drds__system__recyclebin__类
+        fliterSpecialTable(allTabInfo);
+        return allTabInfo;
+    }
+
+
+    //与extractTabInfo的传参不同，一样
+    static LinkedHashSet<TableInfo> extractTabInfo2Sharding(DataBaseInfo dataBaseInfo, String sql) throws SQLException {
+        //1.加载驱动程序
+//        Class.forName("com.mysql.jdbc.Driver");
+        Connection conn = DriverManager.getConnection(dataBaseInfo.getUrl(), dataBaseInfo.getUser(), dataBaseInfo.getPassword());
+        Statement stmt = conn.createStatement();
+        ResultSet rs = stmt.executeQuery(sql);
+        TableInfo previousTable = null;
+        LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
+        LinkedList<FieldInfo> fields = null;
+        String dbName = null;
+        String tabName = null;
+        String cluName = null;
+        String cluType = null;
+        String columnComment = null;
+        String tblComment = null;
+        TableInfo dbAndTable = null;
+        while (rs.next()) {
+            dbName = rs.getString("dbName");
+            tabName = rs.getString("tabName");
+            cluName = rs.getString("cluName");
+            cluType = rs.getString("cluType");
+            columnComment = rs.getString("columnComment");
+            tblComment = rs.getString("tblComment");
+
+            String sqlSharding = "SHOW TOPOLOGY FROM  " + dbName + "." + tabName;
+            ResultSet resultSet2 = stmt.executeQuery(sqlSharding);
+
+            dbAndTable = new TableInfo(dbName, tabName, tblComment);
+
+            while (resultSet2.next()) {
+                String group_name = resultSet2.getString("GROUP_NAME");
+                String table_name = resultSet2.getString("TABLE_NAME");
+
+                dbAndTable = new TableInfo(group_name, table_name, tblComment);
+
+                if (previousTable == null || !previousTable.equals(dbAndTable)) {
+                    if (previousTable != null) {
+                        previousTable.setTableFields(fields);
+                        allTabInfo.add(previousTable);
+                    }
+                    fields = new LinkedList<FieldInfo>();
+                    previousTable = dbAndTable;
+                }
+
+                FieldInfo fieldInfo = new FieldInfo();
+                fieldInfo.setFieldName(cluName);
+                fieldInfo.setDataType(cluType);
+                fieldInfo.setColumnComment(columnComment);
+                fields.add(fieldInfo);
+
+            }
         }
         dbAndTable.setTableFields(fields);
         allTabInfo.add(dbAndTable);
@@ -676,7 +821,7 @@ public class SqoopProducter {
                     "sqoop import \\\n" +
                             "-D org.apache.sqoop.splitter.allow_text_splitter=true \\\n" +
                             "-D mapreduce.task.timeout=7200000 \\\n" +
-                            "--connect " + dataBaseInfo.getUrl() + tableInfo.getDatabaseName() + " \\\n" +
+                            "--connect " + dataBaseInfo.getUrl() + tableInfo.getDatabaseName() + "?tinyInt1isBit=false\\&zeroDateTimeBehavior=convertToNull \\\n" +
                             "--username " + dataBaseInfo.getUser() + " \\\n" +
                             "--password '" + dataBaseInfo.getPassword() + "' \\\n" +
                             odsSyncStrategy_SpecifiedField(tableInfo) +
@@ -729,6 +874,49 @@ public class SqoopProducter {
 //                out.write("\n\n\n");
 //                out.close();
 //            }
+        }
+    }
+
+
+    //增量与全量 分库分表的
+    static void everyTableSqoopShell_SpecifiedField_allAndIncrement_split(LinkedHashSet<TableInfo> allTabInfo, DataBaseInfo dataBaseInfo) throws IOException {
+
+        for (TableInfo tableInfo : allTabInfo) {
+            String dirLocation = "./oltp_to_hdfs/" + LAYERPREFIX + standardization(tableInfo.getDatabaseName());
+            File f = new File(dirLocation);
+            if (!f.exists()) {
+                f.mkdirs();
+            }
+            BufferedWriter out = new BufferedWriter(new FileWriter("./oltp_to_hdfs/" + LAYERPREFIX + standardization(tableInfo.getDatabaseName()) + "/" + LAYERPREFIX + tableInfo.getTableName() + ".sh"));
+            StringBuilder stringBuilder = new StringBuilder();
+            out.write("#!/bin/bash\n\n" +
+                    "if [ -n \"$1\" ] ;then\n" +
+                    "    do_date=$1\n" +
+                    "else\n" +
+                    "    do_date=`date -d '-1 day' +%F`\n" +
+                    "fi\n\n");
+            stringBuilder.append(
+                    "sqoop import \\\n" +
+                            "-D org.apache.sqoop.splitter.allow_text_splitter=true \\\n" +
+                            "-D mapreduce.task.timeout=7200000 \\\n" +
+                            "--connect " + dataBaseInfo.getUrl() + tableInfo.getDatabaseName() + "?tinyInt1isBit=false\\&zeroDateTimeBehavior=convertToNull \\\n" +
+                            "--username " + dataBaseInfo.getUser() + " \\\n" +
+                            "--password '" + dataBaseInfo.getPassword() + "' \\\n" +
+                            odsSyncStrategy_SpecifiedField(tableInfo) +
+//                            "--table " + tableInfo.getTableName() + " \\\n" +
+                            "--target-dir /warehouse/tablespace/external/hive/bigdata/origin_data/db/ods/" + LAYERPREFIX + standardization(tableInfo.getDatabaseName()) + "/" + LAYERPREFIX + tableInfo.getTableName() + "/" + "$do_date" + " \\\n" +
+                            "--delete-target-dir \\\n" +
+                            "--hive-drop-import-delims \\\n" +
+                            "--fields-terminated-by '\\001' \\\n" +
+//                            "--num-mappers 4 \\\n" +
+                            "--split-by " + tableInfo.getTableFields().getFirst().getFieldName() + " \\\n" +
+                            "--null-string '\\\\N' \\\n" +
+                            "--null-non-string '\\\\N' \n\n"
+            );
+            exceptionExitSqoop(stringBuilder, tableInfo);
+            out.write(stringBuilder.toString());
+            out.write("\n\n\n");
+            out.close();
         }
     }
 
@@ -1644,7 +1832,9 @@ public class SqoopProducter {
         String hiveDataType = null;
         if ("date".equals(split[0]) || "datetime".equals(split[0]) || "timestamp".equals(split[0])) {
             hiveDataType = "string";
-        } else if ("tinyint".equals(split[0]) || "smallint".equals(split[0]) || "int".equals(split[0]) || "bigint".equals(split[0]) || "float".equals(split[0]) || "double".equals(split[0])) {
+        } else if ("tinyint".equals(split[0])) {
+            hiveDataType = split[0];
+        } else if ("smallint".equals(split[0]) || "int".equals(split[0]) || "bigint".equals(split[0]) || "float".equals(split[0]) || "double".equals(split[0])) {
             hiveDataType = split[0];
         } else if ("mediumint".equals(split[0])) {
             hiveDataType = "int";
@@ -1745,16 +1935,16 @@ public class SqoopProducter {
 
         StringBuilder stringBuilder = new StringBuilder();
         for (TableInfo tableInfo : allTabInfo) {
-//            stringBuilder.append("  - name: sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
-//                    "    type: command\n" +
-//                    "    config:\n" +
-//                    "      command: sh " + SQOOPSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + LAYERPREFIX + tableInfo.getTableName() + ".sh ${exec_date}\n\n");
+            stringBuilder.append("  - name: sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    type: command\n" +
+                    "    config:\n" +
+                    "      command: sh " + SQOOPSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + LAYERPREFIX + tableInfo.getTableName() + ".sh ${exec_date}\n\n");
 
 
             stringBuilder.append("  - name: ods." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
                     "    type: command\n" +
-//                    "    dependsOn:\n" +
-//                    "      - " + "sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
+                    "    dependsOn:\n" +
+                    "      - " + "sqoop." + tableInfo.getDatabaseName() + "." + tableInfo.getTableName() + "\n" +
                     "    config:\n" +
                     "      command: sh " + ODSSHELLLOCATION + "/" + LAYERPREFIX + tableInfo.getDatabaseName() + "/" + LAYERPREFIX + tableInfo.getTableName() + ".sh ${exec_date}\n\n");
         }
@@ -2414,116 +2604,37 @@ public class SqoopProducter {
 
     //cdh的
     static void cdh() throws SQLException, IOException, InterruptedException {
-        //        BufferedWriter out = new BufferedWriter(new FileWriter("sqoopTest.sh"));
-        // write your code here
-//        String encode = URLEncoder.encode(("30,18"), "utf-8");
-//        String decode = URLDecoder.decode(encode, "utf-8");
-//        System.out.println(encode);
-//        out.write(decode);
-//
-////        out.write("");
-//        out.close();
-//        System.out.println("文件创建成功！");
-        //------------------------
-
-//        System.out.println(fliterQuotation("'aaba':\"2232\"'"));
-//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo();
-//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo(URL, USER, PASSWORD, sql);
-
-//        INCREMENTTABLE.add("ods_english_game.ods_gm_player_property_change");
-//        INCREMENTTABLE.add("ods_english_read.ods_rd_day_total_read");
-//        INCREMENTTABLE.add("ods_chinese_power_value.ods_word_study_stat");
-//        INCREMENTTABLE.add("ods_english_ebook.ods_ek_student_first_ebook");
-//        INCREMENTTABLE.add("ods_english_read.ods_rd_day_read");
-//        INCREMENTTABLE.add("ods_english_video.ods_hs_speak_student_answer");
-//        INCREMENTTABLE.add("ods_chinese_article.ods_article_sentence_info");
-//        INCREMENTTABLE.add("ods_english_read.ods_rd_through_book");
-//        INCREMENTTABLE.add("ods_english_parent.ods_pt_heart_talk");
-//        INCREMENTTABLE.add("ods_english_read.ods_rd_student_interrupt");
-//        INCREMENTTABLE.add("ods_english_gold.ods_gd_gold_bill");
-//        INCREMENTTABLE.add("ods_english_game.ods_gm_player_task");
-//        INCREMENTTABLE.add("ods_english_video.ods_vd_play_film_log");
-//        INCREMENTTABLE.add("ods_english_oral.ods_ol_day_oral");
-//        INCREMENTTABLE.add("ods_chinese_article.ods_read_article_info");
-//        INCREMENTTABLE.add("ods_chinese_article.ods_read_article_log");
-//        INCREMENTTABLE.add("ods_english_oral.ods_ol_day_oral_bak");
-//        INCREMENTTABLE.add("ods_english_parent.ods_pt_read_activity_sign_in");
-//        INCREMENTTABLE.add("ods_english_student.ods_st_student_view");
-//        INCREMENTTABLE.add("ods_english_ebook.ods_ek_student_ebook");
-//        INCREMENTTABLE.add("ods_english_oral.ods_ol_student_review");
-//        INCREMENTTABLE.add("ods_english_student.ods_st_student_report");
-//        INCREMENTTABLE.add("ods_english_oral.ods_ol_student_review_bak");
-//        INCREMENTTABLE.add("ods_english_parent.ods_pt_upload_sign_pic");
-//        INCREMENTTABLE.add("ods_chinese_power_value.ods_user_word_study_stat");
-//        INCREMENTTABLE.add("ods_chinese_introduction.ods_search_history");
-//        INCREMENTTABLE.add("ods_english_gold.ods_gd_gold_reward_detail");
-//        INCREMENTTABLE.add("ods_point.point_etp_race_login_sign");
-//        INCREMENTTABLE.add("ods_english_teacher.ods_tc_student_task");
-//        INCREMENTTABLE.add("ods_kk_marketer.ods_thirdpartymsglog");
-//        INCREMENTTABLE.add("ods_chinese_introduction.ods_browsing_history_log");
-//        INCREMENTTABLE.add("ods_chinese_introduction.ods_user_behavior_log");
-//        INCREMENTTABLE.add("ods_english_video.ods_vd_play_film");
-//        INCREMENTTABLE.add("ods_english_read.ods_rd_student_answer_exercise");
-//        INCREMENTTABLE.add("ods_chinese_user_data.ods_rank_user_source_increase_log");
-//        INCREMENTTABLE.add("ods_english_read.ods_rd_student_favorite_book");
-//        INCREMENTTABLE.add("ods_chinese_power_value.ods_day_study_data_stat");
-//        INCREMENTTABLE.add("ods_chinese_power_value.ods_study_milestone_evaluate_stat");
-//        INCREMENTTABLE.add("ods_english_parent.ods_pt_parent_task");
-
-
-        INCREMENTTABLE.add("english_game.gm_player_property_change");
-        INCREMENTTABLE.add("english_read.rd_day_total_read");
-        INCREMENTTABLE.add("chinese_power_value.word_study_stat");
-        INCREMENTTABLE.add("english_ebook.ek_student_first_ebook");
-        INCREMENTTABLE.add("english_read.rd_day_read");
-        INCREMENTTABLE.add("english_video.hs_speak_student_answer");
-        INCREMENTTABLE.add("chinese_article.article_sentence_info");
-        INCREMENTTABLE.add("english_read.rd_through_book");
-        INCREMENTTABLE.add("english_parent.pt_heart_talk");
-        INCREMENTTABLE.add("english_read.rd_student_interrupt");
-        INCREMENTTABLE.add("english_gold.gd_gold_bill");
-        INCREMENTTABLE.add("english_game.gm_player_task");
-        INCREMENTTABLE.add("english_video.vd_play_film_log");
-        INCREMENTTABLE.add("english_oral.ol_day_oral");
-        INCREMENTTABLE.add("chinese_article.read_article_info");
-        INCREMENTTABLE.add("chinese_article.read_article_log");
-        INCREMENTTABLE.add("english_oral.ol_day_oral_bak");
-        INCREMENTTABLE.add("english_parent.pt_read_activity_sign_in");
-        INCREMENTTABLE.add("english_student.st_student_view");
-        INCREMENTTABLE.add("english_ebook.ek_student_ebook");
-        INCREMENTTABLE.add("english_oral.ol_student_review");
-        INCREMENTTABLE.add("english_student.st_student_report");
-        INCREMENTTABLE.add("english_oral.ol_student_review_bak");
-        INCREMENTTABLE.add("english_parent.pt_upload_sign_pic");
-        INCREMENTTABLE.add("chinese_power_value.user_word_study_stat");
-        INCREMENTTABLE.add("chinese_introduction.search_history");
-        INCREMENTTABLE.add("english_gold.gd_gold_reward_detail");
-        INCREMENTTABLE.add("point.point_etp_race_login_sign");
-        INCREMENTTABLE.add("english_teacher.tc_student_task");
-//        INCREMENTTABLE.add("kk_marketer.thirdpartymsglog");//没有createtime的字段
-        INCREMENTTABLE.add("chinese_introduction.browsing_history_log");
-        INCREMENTTABLE.add("chinese_introduction.user_behavior_log");
-        INCREMENTTABLE.add("english_video.vd_play_film");
-        INCREMENTTABLE.add("english_read.rd_student_answer_exercise");
-        INCREMENTTABLE.add("chinese_user_data.rank_user_source_increase_log");
-        INCREMENTTABLE.add("english_read.rd_student_favorite_book");
-        INCREMENTTABLE.add("chinese_power_value.day_study_data_stat");
-        INCREMENTTABLE.add("chinese_power_value.study_milestone_evaluate_stat");
-        INCREMENTTABLE.add("english_parent.pt_parent_task");
-
-        //-----------------------------------------------------
         String sqleng = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
                 "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
                 "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
                 "WHERE  a.TABLE_SCHEMA LIKE '" + "eng" + "%' ;";
 
+        String sqlEngactive = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA = '" + "english_activity" + "' ;";
+
+//        String sqleng = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+//                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+//                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+//                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+//                "WHERE  " +
+////                "a.TABLE_SCHEMA = '" + "english_basedata" + "' \n" +
+////                "and " +
+//                "a.TABLE_NAME = 'ms_message_receive' \n" +
+//                "or " + "a.TABLE_NAME = 'ms_message_send' \n" +
+//                ";";
+
         String sqlkk = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
                 "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
                 "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
                 "WHERE  a.TABLE_SCHEMA LIKE '" + "kk" + "%' \n" +
-                "or " + "a.TABLE_SCHEMA = 'ientrepreneurship_dev' ;";
+                "or " + "a.TABLE_SCHEMA = 'ientrepreneurship_dev' " +
+                "or " + "a.TABLE_SCHEMA = 'electron_tag' " +
+                ";";
 
         String sqlchi = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment,\n" +
                 "row_number() over(PARTITION BY a.`TABLE_SCHEMA`,a.`TABLE_NAME` ORDER BY a.`ORDINAL_POSITION` ) AS num\n" +
@@ -2534,6 +2645,17 @@ public class SqoopProducter {
                 "AND a.`TABLE_SCHEMA`!= 'chinese-user-login' \n" +
                 "AND a.`TABLE_SCHEMA`!= 'chinese-crawl' ;";
 
+        String sqlChiAgent = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA LIKE '" + "cn_" + "%' ;";
+
+        String sqlUserCenter = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
+                "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
+                "LEFT JOIN INFORMATION_SCHEMA.`TABLES` b\n" +
+                "ON a.TABLE_SCHEMA = b.TABLE_SCHEMA AND a.TABLE_NAME = b.TABLE_NAME \n" +
+                "WHERE  a.TABLE_SCHEMA = '" + "tope_user_center" + "' ;";
 
         String sqldim = "SELECT  a.TABLE_SCHEMA AS dbName , a.TABLE_NAME AS tabName,a.`COLUMN_NAME` AS cluName,a.COLUMN_TYPE AS cluType,a.COLUMN_COMMENT AS columnComment ,b.`TABLE_COMMENT` AS tblComment\n" +
                 "FROM INFORMATION_SCHEMA.`COLUMNS`  a\n" +
@@ -2556,7 +2678,6 @@ public class SqoopProducter {
 
         //------------------------------------------------------------------
 
-
 //        LinkedHashSet<TableInfo> allTabInfo = extractAllTabInfo();
 
         DataBaseInfo eng = new DataBaseInfo(
@@ -2564,6 +2685,34 @@ public class SqoopProducter {
                 "qa_alldata_ro",
                 "kUM8qL1cubf0Xf7RI9AT",
                 sqleng
+        );
+
+        DataBaseInfo kk = new DataBaseInfo(
+                "jdbc:mysql://rm-2ze02m3a090ke3zub.mysql.rds.aliyuncs.com:3306/",
+                "tidb_ro",
+                "LALQJGpfiw1jUyLhTqu6",
+                sqlkk
+        );
+
+        DataBaseInfo chi = new DataBaseInfo(
+                "jdbc:mysql://tope-qa-all-bj.rwlb.rds.aliyuncs.com:3306/",
+                "chin_all_mgr",
+                "fBwR3RMFeZ9RyNZC#v",
+                sqlchi
+        );
+
+        DataBaseInfo chiAgent = new DataBaseInfo(
+                "jdbc:mysql://rm-2zekupo10c175t4q1.mysql.rds.aliyuncs.com:3306/",
+                "qa_root",
+                "P052ao79mBwDxN8fzesH",
+                sqlChiAgent
+        );
+
+        DataBaseInfo userCenter = new DataBaseInfo(
+                "jdbc:mysql://rm-2ze75n8om14bj8nrd.mysql.rds.aliyuncs.com:3306/",
+                "tope_user_center",
+                "4NZO2aLiEuwppSN6DsxG",
+                sqlUserCenter
         );
 
         DataBaseInfo dwd = new DataBaseInfo(
@@ -2580,21 +2729,6 @@ public class SqoopProducter {
                 sqldwm
         );
 
-
-        DataBaseInfo kk = new DataBaseInfo(
-                "jdbc:mysql://rm-2ze02m3a090ke3zub.mysql.rds.aliyuncs.com:3306/",
-                "tidb_ro",
-                "LALQJGpfiw1jUyLhTqu6",
-                sqlkk
-        );
-
-        DataBaseInfo chi = new DataBaseInfo(
-                "jdbc:mysql://tope-qa-all-bj.rwlb.rds.aliyuncs.com:3306/",
-                "chin_all_mgr",
-                "fBwR3RMFeZ9RyNZC#v",
-                sqlchi
-        );
-
         DataBaseInfo dim = new DataBaseInfo(
                 "jdbc:mysql://172.28.30.28:3306/",
                 "zhengyajun",
@@ -2602,28 +2736,52 @@ public class SqoopProducter {
                 sqldim
         );
 
+        DataBaseInfo englishActive = new DataBaseInfo(
+                "jdbc:mysql://rm-2ze89rmgj9m1jq23o.mysql.rds.aliyuncs.com:3306/",
+                "dev_root",
+                "rVDcOrZmoEosSHsj=aWx",
+                sqlEngactive
+        );
+
+
         //ods层
-//        LinkedHashSet<TableInfo> allTabInfo3 = extractTabInfo2(eng, sqleng);
-//        everyTableSqoopShell_SpecifiedField(allTabInfo3, eng);
-//        hiveCreateTable2(allTabInfo3);
-//
-//        LinkedHashSet<TableInfo> allTabInfo = extractTabInfo2(kk, sqlkk);
-//        everyTableSqoopShell_SpecifiedField(allTabInfo, kk);
-//        hiveCreateTable_KK(allTabInfo);
-//
+//        LinkedHashSet<TableInfo> allTabInfo1 = extractTabInfo2(kk, sqlkk);
+//        everyTableSqoopShell_SpecifiedField_allAndIncrement(allTabInfo1, kk);
+
 //        LinkedHashSet<TableInfo> allTabInfo2 = extractTabInfo2(chi, sqlchi);
-//        everyTableSqoopShell_SpecifiedField(allTabInfo2, chi);
+//        everyTableSqoopShell_SpecifiedField_allAndIncrement(allTabInfo2, chi);
+//
+//        LinkedHashSet<TableInfo> allTabInfo3 = extractTabInfo2Sharding2(eng, sqleng);
+//        everyTableSqoopShell_SpecifiedField_allAndIncrement(allTabInfo3, eng);
+//
+//        LinkedHashSet<TableInfo> allTabInfo4 = extractTabInfo2(chiAgent, sqlChiAgent);
+//        everyTableSqoopShell_SpecifiedField_allAndIncrement(allTabInfo4, chiAgent);
+//
+//        LinkedHashSet<TableInfo> allTabInfo5 = extractTabInfo2(userCenter, sqlUserCenter);
+//        everyTableSqoopShell_SpecifiedField_allAndIncrement(allTabInfo5, userCenter);
+
+        LinkedHashSet<TableInfo> allTabInfo6 = extractTabInfo2(englishActive, sqlEngactive);
+        everyTableSqoopShell_SpecifiedField_allAndIncrement(allTabInfo6, englishActive);
+
+
 ////        standardization(allTabInfo2);
 ////        hiveCreateTable_chi(allTabInfo2);
+        LinkedHashSet<TableInfo> allTabInfo = new LinkedHashSet<TableInfo>();
+//        allTabInfo.addAll(allTabInfo1);
 //        allTabInfo.addAll(allTabInfo2);
 //        allTabInfo.addAll(allTabInfo3);
+//        allTabInfo.addAll(allTabInfo4);
+//        allTabInfo.addAll(allTabInfo5);
+        allTabInfo.addAll(allTabInfo6);
 ////
-//        everyTableOdsShell(allTabInfo);
-//        azkabanOdsFlow(allTabInfo);
+        everyTableOdsAllAndIncrementShell(allTabInfo);
+        azkabanOdsFlow(allTabInfo);
+        hiveCreateTable2(allTabInfo);
+        hiveRepairTable(allTabInfo);
 
 
         //dwd调度
-        LinkedHashSet<TableInfo> allTabInfo4 = extractTabInfo2(dwd, sqldwd);
+//        LinkedHashSet<TableInfo> allTabInfo4 = extractTabInfo2(dwd, sqldwd);
 //        azkabanDwdFlow(allTabInfo4);
 
         //dwm调度
@@ -2654,10 +2812,10 @@ public class SqoopProducter {
 
 
         //dwd
-        dwdCreateTable(allTabInfo4);
-        everyTableSqoopShell_SpecifiedField(allTabInfo4, dwd);
-
-        everyTableOdsShell(allTabInfo4);
+//        dwdCreateTable(allTabInfo4);
+//        everyTableSqoopShell_SpecifiedField(allTabInfo4, dwd);
+//
+//        everyTableOdsShell(allTabInfo4);
 
 
         //dim
@@ -3915,11 +4073,10 @@ public class SqoopProducter {
     }
 
 
-
-    public static void prodFull() throws IOException, SQLException {
+    public static void prodFull() throws IOException, SQLException, InterruptedException {
         //prodOds();
         init();
-//        prodOdsAllAndIncrement();
+        prodOdsAllAndIncrement();
 
 
         //
@@ -3932,11 +4089,11 @@ public class SqoopProducter {
     }
 
 
-    public static void devFull() throws IOException, SQLException {
+    public static void devFull() throws IOException, SQLException, InterruptedException {
         init();
 //        chineseRds_to_Tidb();
 //        newChi();
-//        cdh();
+        cdh();
 //        tmp();
 //        dwn();
 //        chineseRds_to_Tidb();
@@ -3945,7 +4102,7 @@ public class SqoopProducter {
     public static void main(String[] args) throws IOException, SQLException, InterruptedException {
 
         //-----生产全部在这------
-        prodFull();
+//        prodFull();
 
         //-------测试的全部在这
         devFull();
