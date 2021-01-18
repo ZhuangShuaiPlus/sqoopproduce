@@ -9,6 +9,12 @@ public class DataBaseInfo {
     public DataBaseInfo() {
     }
 
+    public DataBaseInfo(String url, String user, String password) {
+        this.url = url;
+        this.user = user;
+        this.password = password;
+    }
+
     public DataBaseInfo(String url, String user, String password, String sql) {
         this.url = url;
         this.user = user;

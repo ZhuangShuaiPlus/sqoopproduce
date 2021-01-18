@@ -15,6 +15,10 @@ public class FieldInfo {
     public FieldInfo() {
     }
 
+    public FieldInfo(String fieldName) {
+        this.fieldName = fieldName;
+    }
+
     public FieldInfo(String fieldName, String dataType, String columnComment) {
         this.fieldName = fieldName;
         this.dataType = dataType;

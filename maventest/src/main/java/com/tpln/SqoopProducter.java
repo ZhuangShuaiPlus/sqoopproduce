@@ -4102,7 +4102,7 @@ public class SqoopProducter {
     public static void main(String[] args) throws IOException, SQLException, InterruptedException {
 
         //-----生产全部在这------
-//        prodFull();
+        prodFull();
 
         //-------测试的全部在这
         devFull();
